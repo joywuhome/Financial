@@ -1,6 +1,6 @@
 # ==========================================
-# 📂 檔案名稱： Fundamental_2026.py (主程式)
-# 💡 更新內容： 動態切換 Q1 營收預估、扣除業外損益、並於介面顯示滾動式比率說明
+# 📂 檔案名稱： API_2026.py (新版 API 專屬主程式)
+# 💡 更新內容： 綁定全新 API 專屬表單，作為純淨數據庫的展示大腦
 # ==========================================
 
 import streamlit as st
@@ -25,7 +25,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ==========================================
 # 網頁基本設定 & 響應式 CSS 
 # ==========================================
-st.set_page_config(page_title="2026 戰略指揮", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="2026 戰略指揮 (API版)", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -48,10 +48,11 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-MASTER_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1TI1RBZVFgqO8ir-PhMMakL7fBcuBP06fiklKPGENH5g/edit?usp=sharing"
+# 🌟 已經為您替換為全新的 API 專屬表單網址
+MASTER_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1yLVLQDOfns_zuNCDnhI-qR2IsYVCEcbwWhZqQt1OP0c/edit?usp=sharing"
 
-# 💡 V182 標題確認法
-st.title("📊 2026 戰略指揮 (V01版)")
+# 💡 標題確認法：加上 API 專屬版字樣避免混淆
+st.title("📊 2026 戰略指揮 (API 專屬版)")
 
 def force_rerun():
     try:
@@ -105,7 +106,6 @@ def auto_strategic_model(name, current_month, rev_last_11, rev_last_12, rev_this
 
     actual_known_q1 = sum([v for v in [sim_rev_1, sim_rev_2, sim_rev_3] if v > 0])
     
-    # 1. 計算淡旺季基準比率 
     ratio_q1 = ly_q1_rev / y1_q4_rev if y1_q4_rev > 0 else 1.0
     
     sum_q2_history = y1_q2_rev + ly_q2_rev
@@ -115,14 +115,12 @@ def auto_strategic_model(name, current_month, rev_last_11, rev_last_12, rev_this
     ratio_q3 = sum_q3_history / sum_q2_history if sum_q2_history > 0 else 1.0
     ratio_q4 = sum_q4_history / sum_q3_history if sum_q3_history > 0 else 1.0
 
-    # 決定動態均營收
     base_11_12_avg = (rev_last_11 + rev_last_12) / 2
     if current_month <= 1: dynamic_base_avg, formula_note = base_11_12_avg, "推演1月(全未知)"
     elif current_month == 2: dynamic_base_avg, formula_note = sim_rev_1 * 0.9 if sim_rev_1 > 0 else base_11_12_avg, "推演2月(知1月)"
     elif current_month == 3: dynamic_base_avg, formula_note = (sim_rev_1 * 2 + sim_rev_2) / 3 if sim_rev_2 > 0 else sim_rev_1, "推演3月(知1,2月)"
     else: dynamic_base_avg, formula_note = (sim_rev_1 + sim_rev_2 + sim_rev_3) / 3, "推演4月+"
 
-    # 動態切換 Q1 預估方式
     if actual_known_q1 == 0:
         est_q1_rev = (base_11_12_avg * 3) * ratio_q1
         note_q1_part = "依去年年底均值及歷史淡旺季預估Q1"
@@ -130,7 +128,6 @@ def auto_strategic_model(name, current_month, rev_last_11, rev_last_12, rev_this
         est_q1_rev = dynamic_base_avg * 3
         note_q1_part = "採今年已公告之動態營收預估Q1"
 
-    # 依序推算 Q2~Q4 營收
     est_q2_rev = est_q1_rev
     est_q3_rev = est_q2_rev * ratio_q3
     est_q4_rev = est_q3_rev * ratio_q4
@@ -145,12 +142,10 @@ def auto_strategic_model(name, current_month, rev_last_11, rev_last_12, rev_this
     if this_year_q1_eps != 0 and actual_known_q1 > 0:
         profit_margin_factor = this_year_q1_eps / actual_known_q1
         est_q1_eps_display = this_year_q1_eps
-        # 🌟 補上完整的邏輯說明，供核對使用
         formula_note += f" | ✅已採Q1實際EPS推算全年 | Q3,Q4依近兩年({datetime.now().year-2}&{datetime.now().year-1})歷史滾動比率推算"
     else:
         profit_margin_factor = base_q_eps * (1 - (non_op_ratio / 100)) / base_q_total_rev 
         est_q1_eps_display = est_q1_rev * profit_margin_factor
-        # 🌟 補上完整的邏輯說明，供核對使用
         formula_note += f" | {note_q1_part} | Q3,Q4依近兩年({datetime.now().year-2}&{datetime.now().year-1})歷史滾動比率推算"
 
     est_full_year_eps = est_total_rev * profit_margin_factor
@@ -213,7 +208,7 @@ def financial_strategic_model(name, code, current_month, data, simulated_month):
 # ==========================================
 # 🌟 核心快取大腦 
 # ==========================================
-@st.cache_data(ttl=3600, show_spinner="連線至雙核大數據庫 (V182 邏輯標示版)...")
+@st.cache_data(ttl=3600, show_spinner="連線至 API 專屬大數據庫...")
 def fetch_gsheet_data_v182():
     try:
         client = get_gspread_client()
@@ -286,7 +281,7 @@ def fetch_gsheet_data_v182():
                     "pbr": v(get_col("PBR") or get_col("淨值比")), "div_years": v(get_col("連配次數") or get_col("連續配發")),
                     "orig_per": v(get_col("PER", ex=["前瞻", "預估"])), "annual_yield": v(get_col("年化合計殖利率") or get_col("年化", "殖利率")),
                     "payout": v(get_col("分配率")), "price": v(get_col("成交", ex=["量", "值", "比"])), "acc_eps": v(get_col("累季", "盈餘")),
-                    "contract_liab": v(get_col("合合負債", ex=["季增"])), "contract_liab_qoq": v(get_col("合約負債季增") or get_col("季增", "負債")), "declared_div": v(get_col("合計股利")),
+                    "contract_liab": v(get_col("合約負債", ex=["季增"])), "contract_liab_qoq": v(get_col("合約負債季增") or get_col("季增", "負債")), "declared_div": v(get_col("合計股利")),
                     "this_y_q1_eps": v(get_col(f"{this_y_str}Q1", "盈餘"))
                 }
             return db
@@ -332,7 +327,7 @@ if user_email and "google_key" in st.secrets:
                 break
         if user_row_idx: st.sidebar.success(f"✅ 歡迎！{' (👑 管理員)' if is_admin else ''}")
         else: st.sidebar.info("👋 輸入清單後儲存即可建立帳號。")
-    except Exception as e: st.sidebar.error("❌ 連線失敗。")
+    except Exception as e: st.sidebar.error("❌ 連線失敗或找不到『權限管理』分頁。")
 
 watch_list_input = st.sidebar.text_area("📌 您的專屬關注清單", value=user_vip_list if user_vip_list else "2330, 2317, 3023", height=100)
 if user_email and st.sidebar.button("💾 儲存 / 更新清單", type="secondary") and sheet_auth:
