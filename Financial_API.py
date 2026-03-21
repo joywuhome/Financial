@@ -49,7 +49,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # 🌟 已經為您替換為全新的 API 專屬表單網址
-MASTER_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1yLVLQDOfns_zuNCDnhI-qR2IsYVCEcbwWhZqQt1OP0c/edit?usp=sharing"
+MASTER_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1uwAcFVjW0s6VKwkqU7tjptdkmFH6E0up/edit?gid=2019847093#gid=2019847093"
 
 # 💡 標題確認法：加上 API 專屬版字樣避免混淆
 st.title("📊 2026 戰略指揮 (API 專屬版)")
