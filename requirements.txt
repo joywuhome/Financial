@@ -1,0 +1,9 @@
+streamlit
+pandas
+yfinance
+requests
+gspread
+google-auth
+altair
+lxml
+html5lib
