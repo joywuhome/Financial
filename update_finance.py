@@ -10,7 +10,7 @@ from google.oauth2.service_account import Credentials
 # 1. 系統設定與金鑰驗證
 # ==========================================
 # 請確認您的 Google Sheet 總表網址正確
-MASTER_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1Z_u8r0pB2K90t3pG5m5m-E02n_H_hG5s4-Y4Qo-tZgI/edit"
+MASTER_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1uwAcFVjW0s6VKwkqU7tjptdkmFH6E0up/edit?gid=1314568005#gid=1314568005"
 
 def get_gspread_client():
     """讀取 GitHub Secrets 保險箱裡的金鑰"""
