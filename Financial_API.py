@@ -1,5 +1,5 @@
 # ==========================================
-# 📂 檔案名稱： Financial_API.py (純淨校準版 - 業外公式與Q1精準對齊)
+# 📂 檔案名稱： Financial_API.py (業外黃金公式 + 智慧防覆蓋版)
 # ==========================================
 
 import streamlit as st
@@ -104,7 +104,6 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
     actual_known_q1 = sum([v for v in [sim_rev_1, sim_rev_2, sim_rev_3] if v > 0])
     
     ratio_q1 = ly_q1_rev / y1_q4_rev if y1_q4_rev > 0 else 1.0
-    
     sum_q2_history = y1_q2_rev + ly_q2_rev
     sum_q3_history = y1_q3_rev + ly_q3_rev
     sum_q4_history = y1_q4_rev + ly_q4_rev
@@ -112,7 +111,6 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
     ratio_q3 = sum_q3_history / sum_q2_history if sum_q2_history > 0 else 1.0
     ratio_q4 = sum_q4_history / sum_q3_history if sum_q3_history > 0 else 1.0
 
-    # 🌟 核心防呆：吳伯伯專屬 VBA 邏輯
     if rev_last_12 > 0:
         base_11_12_avg = (rev_last_11 + rev_last_12) / 2
         est_q1_base_total = base_11_12_avg * 3
@@ -122,7 +120,7 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
         base_11_12_avg = est_q1_base_total / 3
         vba_note = "(VBA防呆:缺12月)"
     
-    # 🌟 Q1 精準預估公式：回歸 (1月*2 + 2月) 邏輯！
+    # 🌟 重大修正：實裝 Q1 = (1月*2 + 2月) 的完美公式
     if current_month <= 1: 
         dynamic_base_avg, formula_note = base_11_12_avg, f"推演1月{vba_note}"
         est_q1_rev = est_q1_base_total * ratio_q1 
@@ -130,8 +128,15 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
         dynamic_base_avg, formula_note = sim_rev_1 * 0.9 if sim_rev_1 > 0 else base_11_12_avg, "推演2月(知1月)"
         est_q1_rev = dynamic_base_avg * 3  
     elif current_month == 3: 
-        dynamic_base_avg, formula_note = (sim_rev_1 * 2 + sim_rev_2) / 3 if sim_rev_2 > 0 else sim_rev_1, "推演3月(知1,2月)"
-        est_q1_rev = dynamic_base_avg * 3  
+        # 吳伯伯專屬：Q1 = 1月*2 + 2月
+        if sim_rev_2 > 0:
+            est_q1_rev = (sim_rev_1 * 2) + sim_rev_2
+            dynamic_base_avg = est_q1_rev / 3
+            formula_note = "推演3月(1月x2+2月)"
+        else:
+            dynamic_base_avg = sim_rev_1
+            est_q1_rev = dynamic_base_avg * 3
+            formula_note = "推演3月(僅知1月)"
     else: 
         dynamic_base_avg, formula_note = (sim_rev_1 + sim_rev_2 + sim_rev_3) / 3, "推演4月+"
         est_q1_rev = dynamic_base_avg * 3  
@@ -146,8 +151,6 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
     q1_yoy = ((est_q1_rev - ly_q1_rev) / ly_q1_rev) * 100 if ly_q1_rev > 0 else 0
 
     base_q_total_rev = base_q_avg_rev * 3 if base_q_avg_rev > 0 else 1.0
-    
-    # 🌟 直接套用接收進來的精準 non_op_ratio
     profit_margin_factor = base_q_eps * (1 - (non_op_ratio / 100)) / base_q_total_rev 
 
     est_q1_eps_display = est_q1_rev * profit_margin_factor
@@ -188,7 +191,7 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
         "前瞻殖利率(%)": round(forward_yield, 2), "預估今年Q1_EPS": round(est_q1_eps_display, 2), 
         "預估今年度_EPS": round(est_full_year_eps, 2), "最新累季EPS": acc_eps, "本益比(PER)": round(est_per, 2),         
         "預估年成長率(%)": round(est_annual_yoy, 2), "運算配息率(%)": calc_payout_ratio, "配息基準": payout_note,
-        "最新業外佔比(%)": round(non_op_ratio, 2), # 🌟 新增業外佔比欄位
+        "最新業外佔比(%)": round(non_op_ratio, 2), 
         "最新季度流動合約負債(億)": contract_liab, "最新季度流動合約負債季增(%)": contract_liab_qoq,
         "_ly_qs": [round(ly_q1_rev, 2), round(ly_q2_rev, 2), round(ly_q3_rev, 2), round(ly_q4_rev, 2)], 
         "_known_qs": [round(actual_known_q1, 2), 0, 0, 0],
@@ -218,7 +221,8 @@ def financial_strategic_model(name, code, current_month, data, simulated_month):
     if simulated_month <= 1: dynamic_base_avg = base_11_12_avg
     elif simulated_month == 2: dynamic_base_avg = sim_rev_1 * 0.9 if sim_rev_1 > 0 else base_11_12_avg
     elif simulated_month == 3: 
-        dynamic_base_avg = (sim_rev_1 * 2 + sim_rev_2) / 3 if sim_rev_2 > 0 else sim_rev_1
+        if sim_rev_2 > 0: dynamic_base_avg = (sim_rev_1 * 2 + sim_rev_2) / 3
+        else: dynamic_base_avg = sim_rev_1
     else: dynamic_base_avg = (sim_rev_1 + sim_rev_2 + sim_rev_3) / 3
 
     non_op_ratio = data.get("non_op_ratio", 0)
@@ -269,7 +273,7 @@ def financial_strategic_model(name, code, current_month, data, simulated_month):
     }
 
 # ==========================================
-# 🌟 核心快取大腦 (絕對精準防抓錯版)
+# 🌟 核心快取大腦 (智慧合併防覆蓋版)
 # ==========================================
 @st.cache_data(ttl=3600, show_spinner="連線至大數據庫...")
 def fetch_gsheet_data_v182():
@@ -280,14 +284,13 @@ def fetch_gsheet_data_v182():
         gen_dfs = []
         fin_dfs = []
         
-        # 🌟 防呆：只抓真正的總表，避免抓到備份檔導致2月資料蒸發！
         for ws in worksheets:
-            clean_title = ws.title.strip()
-            if clean_title in ["當年度表", "個股總表", "總表"]:
+            clean_title = ws.title.replace(" ", "")
+            if any(n in clean_title for n in ["當年度表", "歷史表單", "個股總表", "總表"]):
                 data = ws.get_all_values()
                 if data and len(data) > 1:
                     gen_dfs.append(pd.DataFrame(data[1:], columns=data[0]))
-            elif "金融股" in ws.title:
+            elif "金融股" in clean_title:
                 data = ws.get_all_values()
                 if data and len(data) > 1:
                     fin_dfs.append(pd.DataFrame(data[1:], columns=data[0]))
@@ -332,10 +335,10 @@ def fetch_gsheet_data_v182():
                 rev_q3 = v(get_col(f"{ly}Q3", "營收", ex=["增", "率", "%"]))
                 base_eps = eps_q4 if eps_q4 != 0 else (eps_q3 * (rev_q4 / rev_q3) if rev_q3 > 0 else eps_q3)
 
-                # 🌟 破案：套用最新黃金業外公式
-                op_q4 = v(get_col(f"{ly}Q4", "營益", ex=["率", "%", "增", "每股"]))
+                # 🌟 重大修正：抓取真實絕對金額，算出完美比例
+                op_q4 = v(get_col(f"{ly}Q4", "營益", ex=["率", "%", "增", "每股", "佔"]))
                 nop_q4 = v(get_col(f"{ly}Q4", "業外損益", ex=["率", "%", "增", "每股", "佔"]))
-                op_q3 = v(get_col(f"{ly}Q3", "營益", ex=["率", "%", "增", "每股"]))
+                op_q3 = v(get_col(f"{ly}Q3", "營益", ex=["率", "%", "增", "每股", "佔"]))
                 nop_q3 = v(get_col(f"{ly}Q3", "業外損益", ex=["率", "%", "增", "每股", "佔"]))
 
                 if eps_q4 != 0 or op_q4 != 0 or nop_q4 != 0:
@@ -345,10 +348,12 @@ def fetch_gsheet_data_v182():
                     base_op = op_q3
                     base_nop = nop_q3
                     
+                # 吳伯伯指定公式：業外 / (營益 + 業外)
                 denom = base_op + base_nop
                 non_op_ratio = (base_nop / denom * 100) if denom != 0 else 0.0
+                calc_str = f"{base_nop} / ({base_op} + {base_nop})"
 
-                db[code] = {
+                new_entry = {
                     "name": str(row[c_name]) if c_name else "未知", 
                     "industry": str(row[get_col("產業") or get_col("類別")]).strip() if (get_col("產業") or get_col("類別")) else "未分類",
                     "rev_last_10": v(get_col(f"{last_y}M10", "營收", ex=["增", "率", "%"])), 
@@ -358,7 +363,8 @@ def fetch_gsheet_data_v182():
                     "rev_this_2": v(get_col(f"{this_y}M02", "營收", ex=["增", "率", "%"])), 
                     "rev_this_3": v(get_col(f"{this_y}M03", "營收", ex=["增", "率", "%"])),
                     "base_q_eps": base_eps, 
-                    "non_op_ratio": non_op_ratio, # ✅ 餵給模型
+                    "non_op_ratio": non_op_ratio, 
+                    "non_op_calc_str": calc_str, # 🌟 儲存公式字串供核對
                     "base_q_avg_rev": rev_q4 / 3 if rev_q4 > 0 else 0,
                     "ly_q1_rev": v(get_col(f"{ly}Q1", "營收", ex=["增", "%"])), "ly_q2_rev": v(get_col(f"{ly}Q2", "營收", ex=["增", "%"])), "ly_q3_rev": rev_q3, "ly_q4_rev": rev_q4,
                     "y1_q1_rev": v(get_col(f"{y1}Q1", "營收", ex=["增", "%"])), "y1_q2_rev": v(get_col(f"{y1}Q2", "營收", ex=["增", "%"])), "y1_q3_rev": v(get_col(f"{y1}Q3", "營收", ex=["增", "%"])), "y1_q4_rev": v(get_col(f"{y1}Q4", "營收", ex=["增", "%"])),
@@ -368,6 +374,15 @@ def fetch_gsheet_data_v182():
                     "payout": v(get_col("分配率")), "price": v(get_col("成交", ex=["量", "值", "比"]) or get_col("股價", ex=["比", "淨值"])), "acc_eps": v(get_col("累季", "盈餘")),
                     "contract_liab": v(get_col("合約負債", ex=["季增"])), "contract_liab_qoq": v(get_col("合約負債季增") or get_col("季增", "負債")), "declared_div": v(get_col("合計股利"))
                 }
+
+                # 🌟 破案：智慧防覆蓋機制，確保跨表單 2月 營收不被 0 蓋掉！
+                if code not in db:
+                    db[code] = new_entry
+                else:
+                    for k, val in new_entry.items():
+                        if val and val not in [0, 0.0, "", "未知", "未分類"]:
+                            db[code][k] = val
+
             return db
         return {"general": parse_df(df_general), "finance": parse_df(df_finance)}
     except Exception as e: return {"error": str(e)}
@@ -471,7 +486,7 @@ if is_admin:
                     status.update(label="⚠️ 無法取得報價 (API皆無回應)。", state="error")
                 else:
                     worksheets = get_gspread_client().open_by_url(MASTER_GSHEET_URL).worksheets()
-                    target_sheets = [ws for ws in worksheets if ws.title.strip() in ["當年度表", "個股總表", "總表", "金融股"]]
+                    target_sheets = [ws for ws in worksheets if any(n in ws.title for n in ["當年度表", "個股總表", "總表", "金融股"])]
                     cnt = 0
                     for ws in target_sheets:
                         data = ws.get_all_values()
@@ -513,7 +528,7 @@ if is_admin:
         with st.status(f"鎖定目標欄位【{auto_ym}】...", expanded=True) as status:
             try:
                 worksheets = get_gspread_client().open_by_url(MASTER_GSHEET_URL).worksheets()
-                target_sheets = [ws for ws in worksheets if ws.title.strip() in ["當年度表", "個股總表", "總表", "金融股"]]
+                target_sheets = [ws for ws in worksheets if any(n in ws.title for n in ["當年度表", "個股總表", "總表", "金融股"])]
                 if not target_sheets: status.update(label="任務失敗：找不到分頁", state="error")
                 else:
                     tm_h = auto_ym.strip().upper()
@@ -669,7 +684,6 @@ if cached_data:
                         found += 1
                         bar.progress((i+1)/len(vips), f"分析: {code}")
                         pr = get_realtime_price(code, d["price"])
-                        # 🌟 參數補齊：注入算好的 non_op_ratio
                         res_list.append(auto_strategic_model(f"{code} {d['name']}", simulated_month, d.get("rev_last_10",0), d.get("rev_last_11",0), d.get("rev_last_12",0), d.get("rev_this_1",0), d.get("rev_this_2",0), d.get("rev_this_3",0), d["base_q_eps"], d.get("non_op_ratio",0), d["base_q_avg_rev"], d["ly_q1_rev"], d["ly_q2_rev"], d["ly_q3_rev"], d["ly_q4_rev"], d["y1_q1_rev"], d["y1_q2_rev"], d["y1_q3_rev"], d["y1_q4_rev"], d.get("payout",0), pr, d.get("contract_liab",0), d.get("contract_liab_qoq",0), d.get("acc_eps",0), d.get("declared_div",0)))
                 bar.empty()
                 if not found: st.warning("未找到股票")
@@ -717,14 +731,17 @@ if cached_data:
                                 safe_grow = get_safe_float(row.get('預估年成長率(%)', 0))
                                 safe_non_op = get_safe_float(row.get('最新業外佔比(%)', 0))
                                 
-                                # 🌟 在文字面板中加入最新業外佔比顯示
+                                # 從資料庫拉出計算的詳細公式，直接印在畫面上給您核對
+                                db_data = db_gen.get(sel.split(" ")[0])
+                                calc_str = db_data.get("non_op_calc_str", "") if db_data else "無計算資料"
+                                
                                 st.markdown(
                                     f"股價 {safe_price:.2f}元 ｜ "
                                     f"前瞻殖利率 {safe_yield:.2f}%<br>"
                                     f"PER {safe_per:.2f} ｜ "
                                     f"EPS {safe_eps:.2f}元 ｜ "
                                     f"成長率 {safe_grow:.2f}% ｜ "
-                                    f"📉 業外佔比 {safe_non_op:.2f}%<br>"
+                                    f"📉 業外佔比 {safe_non_op:.2f}% <span style='font-size:0.8em; color:gray;'>(公式: {calc_str})</span><br>"
                                     f"📈 合約負債 {liab_value:.2f}億 ({liab_qoq:.2f}%)",
                                     unsafe_allow_html=True
                                 )
