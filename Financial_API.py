@@ -1,5 +1,6 @@
 # ==========================================
-# 📂 檔案名稱： Financial_API.py (VBA防呆邏輯 + 數據100%校準版)
+# 📂 檔案名稱： Financial_API.py (雙表左右完美對齊版)
+# 💡 任務： 修正上下疊加錯誤，使用正確的 pd.merge 左右縫合，並保留 VBA 防呆邏輯
 # ==========================================
 
 import streamlit as st
@@ -264,29 +265,45 @@ def financial_strategic_model(name, code, current_month, data, simulated_month):
     }
 
 # ==========================================
-# 🌟 核心快取大腦 (回歸 V192 原廠無損讀取)
+# 🌟 核心快取大腦 (升級：正確的左右合併 pd.merge)
 # ==========================================
-@st.cache_data(ttl=3600, show_spinner="連線至大數據庫...")
+@st.cache_data(ttl=3600, show_spinner="連線至大數據庫並進行資料縫合...")
 def fetch_gsheet_data():
     try:
         client = get_gspread_client()
         worksheets = client.open_by_url(MASTER_GSHEET_URL).worksheets()
         
-        gen_dfs = []
+        df_current = pd.DataFrame()
+        df_history = pd.DataFrame()
         fin_dfs = []
         
         for ws in worksheets:
-            # 支援各種可能命名的總表，保證資料不漏接
-            if any(n in ws.title for n in ["當年度表", "個股總表", "總表", "歷史表單"]):
+            if any(n in ws.title for n in ["當年度表", "個股總表", "總表"]):
                 data = ws.get_all_values()
                 if data and len(data) > 1:
-                    gen_dfs.append(pd.DataFrame(data[1:], columns=data[0]))
+                    df_current = pd.DataFrame(data[1:], columns=data[0])
+            elif "歷史表單" in ws.title:
+                data = ws.get_all_values()
+                if data and len(data) > 1:
+                    df_history = pd.DataFrame(data[1:], columns=data[0])
             elif "金融股" in ws.title:
                 data = ws.get_all_values()
                 if data and len(data) > 1:
                     fin_dfs.append(pd.DataFrame(data[1:], columns=data[0]))
                     
-        df_general = pd.concat(gen_dfs, ignore_index=True) if gen_dfs else pd.DataFrame()
+        # 🌟 真正的破案關鍵：使用左右拉鍊式合併 (Merge)，保證每一列對應正確公司
+        if not df_current.empty and not df_history.empty:
+            if "代號" in df_current.columns and "代號" in df_history.columns:
+                cols_to_use = df_history.columns.difference(df_current.columns).tolist()
+                cols_to_use.append("代號")
+                df_general = pd.merge(df_current, df_history[cols_to_use], on="代號", how="left")
+            else:
+                df_general = df_current
+        elif not df_current.empty:
+            df_general = df_current
+        else:
+            df_general = df_history
+
         df_finance = pd.concat(fin_dfs, ignore_index=True) if fin_dfs else pd.DataFrame()
 
         def parse_df(df):
@@ -645,7 +662,6 @@ if cached_data:
                         found += 1
                         bar.progress((i+1)/len(vips), f"分析: {code}")
                         pr = get_realtime_price(code, d["price"])
-                        # 🌟 參數補齊：注入 rev_last_10
                         res_list.append(auto_strategic_model(f"{code} {d['name']}", simulated_month, d.get("rev_last_10",0), d.get("rev_last_11",0), d.get("rev_last_12",0), d.get("rev_this_1",0), d.get("rev_this_2",0), d.get("rev_this_3",0), d["base_q_eps"], d.get("non_op",0), d["base_q_avg_rev"], d["ly_q1_rev"], d["ly_q2_rev"], d["ly_q3_rev"], d["ly_q4_rev"], d["y1_q1_rev"], d["y1_q2_rev"], d["y1_q3_rev"], d["y1_q4_rev"], d.get("payout",0), pr, d.get("contract_liab",0), d.get("contract_liab_qoq",0), d.get("acc_eps",0), d.get("declared_div",0)))
                 bar.empty()
                 if not found: st.warning("未找到股票")
