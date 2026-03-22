@@ -19,7 +19,11 @@ jobs:
         python-version: '3.10'
 
     - name: Install dependencies
-      run: |
+      run: |# 👇 找到原本的這一段，在中間補上 env 區塊
+    - name: Run Python script
+      env:
+        GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+      run: python update_finance.py
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         
