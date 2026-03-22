@@ -1,7 +1,8 @@
 # ==========================================
-# 📂 檔案名稱： update_payout.py (年度大保養：絕對精準鎖定版)
-# 💡 任務： 利用 PE * DY 反推配息率，自動填補歷史與當年度表
+# 📂 檔案名稱： update_finance.py (四道安全鎖防呆版)
+# 💡 任務： 抓取 EPS + 股利，具備嚴格防呆機制，絕不覆蓋歷史資料
 # ==========================================
+
 import os
 import requests
 import gspread
@@ -11,119 +12,120 @@ import json
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# 🌟 已換成您最新的純種 Google 試算表網址
 MASTER_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1vsqhH2i8aoRnBwPJ4BJ1eL2vQYGCkqabgG08f8P2A2c/edit"
 
 def get_gspread_client():
-    # 🌟 已換成正確的金鑰名稱
     key_data = os.environ.get("GOOGLE_CREDENTIALS")
-    if not key_data:
-        raise ValueError("找不到 Google 金鑰")
+    if not key_data: raise ValueError("找不到 Google 金鑰")
     creds_dict = json.loads(key_data)
     creds = Credentials.from_service_account_info(creds_dict, scopes=['https://www.googleapis.com/auth/spreadsheets'])
     return gspread.authorize(creds)
 
-def fetch_and_update_payout():
+def force_float(v):
+    if v is None or str(v).strip() == "": return 0.0
+    s = str(v).strip().replace(',', '')
+    if s.startswith('(') and s.endswith(')'): s = '-' + s[1:-1]
+    try: return float(s)
+    except: return 0.0
+
+def fetch_and_update():
     headers = {'User-Agent': 'Mozilla/5.0'}
-    magic_payout_dict = {}
-
-    print("📡 下載最新【每日收盤行情】計算盈餘分配率...")
     
-    # --- 1. 上市 (TWSE) ---
+    print("📡 下載最新【綜合損益表 EPS】...")
     try:
-        url_twse = "https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL"
-        res_twse = requests.get(url_twse, headers=headers, verify=False, timeout=30).json()
-        for item in res_twse:
-            code = str(item.get('Code', '')).strip()
-            pe, dy = 0.0, 0.0
-            # 暴力掃描所有欄位，無視大小寫，確保絕對不會漏接官方 API 數據
-            for k, v in item.items():
-                k_low = k.lower()
-                if 'pe' in k_low and 'ratio' in k_low:
-                    try: pe = float(str(v).replace(',', ''))
-                    except: pass
-                if 'dividend' in k_low and 'yield' in k_low:
-                    try: dy = float(str(v).replace(',', ''))
-                    except: pass
-            if pe > 0 and dy > 0:
-                magic_payout_dict[code] = round(pe * dy, 2)
+        res_twse = requests.get("https://openapi.twse.com.tw/v1/opendata/t187ap14_L", headers=headers, verify=False, timeout=30).json()
+        res_tpex = requests.get("https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap14_O", headers=headers, verify=False, timeout=30).json()
+        all_eps = res_twse + res_tpex
     except Exception as e: 
-        print(f"❌ 上市 API 抓取失敗: {e}")
+        print(f"❌ EPS 抓取失敗: {e}")
+        all_eps = []
 
-    # --- 2. 上櫃 (TPEx) ---
+    stats = {}
+    for item in all_eps:
+        code = str(item.get('公司代號', item.get('co_id', ''))).strip()
+        if not code: continue
+        
+        annual_eps = 0.0
+        for k, v in item.items():
+            if '每股盈餘' in k: 
+                annual_eps = force_float(v)
+                break
+        
+        stats[code] = {"annual_eps": annual_eps, "dividend": None}
+
+    print("📡 下載最新【現金股利】...")
     try:
-        url_tpex = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_perwd_quotes"
-        res_tpex = requests.get(url_tpex, headers=headers, verify=False, timeout=30).json()
-        for item in res_tpex:
-            code = str(item.get('SecuritiesCompanyCode', '')).strip()
-            pe, dy = 0.0, 0.0
+        res_twse_div = requests.get("https://openapi.twse.com.tw/v1/opendata/t187ap11_L", headers=headers, verify=False, timeout=30).json()
+        res_tpex_div = requests.get("https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap11_O", headers=headers, verify=False, timeout=30).json()
+        all_div = res_twse_div + res_tpex_div
+        
+        for item in all_div:
+            code = str(item.get('公司代號', item.get('co_id', ''))).strip()
+            if not code: continue
+            
+            div = 0.0
             for k, v in item.items():
-                k_low = k.lower()
-                if 'pe' in k_low and 'ratio' in k_low:
-                    try: pe = float(str(v).replace(',', ''))
-                    except: pass
-                if 'dividend' in k_low and 'yield' in k_low:
-                    try: dy = float(str(v).replace(',', ''))
-                    except: pass
-            if pe > 0 and dy > 0:
-                magic_payout_dict[code] = round(pe * dy, 2)
-    except Exception as e: 
-        print(f"❌ 上櫃 API 抓取失敗: {e}")
-
-    if not magic_payout_dict:
-        print("⚠️ 無法取得資料，程式終止。")
-        return
-
-    print(f"✅ 成功反推計算出 {len(magic_payout_dict)} 檔股票的盈餘分配率！\n")
+                if '現金股利總計' in k or '股利合計' in k:
+                    div = force_float(v)
+                    break
+            
+            if code in stats:
+                stats[code]["dividend"] = div
+    except Exception as e:
+        print(f"❌ 股利 抓取失敗: {e}")
 
     client = get_gspread_client()
     spreadsheet = client.open_by_url(MASTER_GSHEET_URL)
     
     for ws in spreadsheet.worksheets():
-        # 🌟 修改為涵蓋您所有可能放配息率的表單名稱
-        if not any(n in ws.title for n in ["當年度表", "歷史表單", "金融股"]): continue
+        if "當年度表" not in ws.title: continue
         data = ws.get_all_values()
         if not data: continue
         
         h = data[0]
+        i_c = next((i for i, x in enumerate(h) if "代號" in x), -1)
+        if i_c == -1: continue
         
-        # 絕對精準定位 1：只認名字完全等於「代號」的欄位 (避開產業代號)
-        i_c = -1
-        for i, x in enumerate(h):
-            clean_name = str(x).replace('\n', '').strip()
-            if clean_name in ["代號", "股票代號", "證券代號"]:
-                i_c = i
-                break
-                
-        # 絕對精準定位 2：找出真正的盈餘總分配率
-        i_payout_target = -1
-        for i, x in enumerate(h):
-            if "盈餘總分配率" in str(x):
-                i_payout_target = i
-                break
+        i_q1 = next((i for i, x in enumerate(h) if "25Q1單季每股盈餘" in str(x)), -1)
+        i_q2 = next((i for i, x in enumerate(h) if "25Q2單季每股盈餘" in str(x)), -1)
+        i_q3 = next((i for i, x in enumerate(h) if "25Q3單季每股盈餘" in str(x)), -1)
         
-        if i_c == -1:
-            print(f"⚠️ 分頁 [{ws.title}] 找不到名為「代號」的欄位，跳過。")
-            continue
-        if i_payout_target == -1:
-            print(f"⚠️ 分頁 [{ws.title}] 找不到「盈餘總分配率」的欄位，跳過。")
-            continue
-
-        print(f"🔍 [{ws.title}] 鎖定成功！代號在第 {i_c+1} 欄，目標在第 {i_payout_target+1} 欄")
+        i_q4_target = next((i for i, x in enumerate(h) if "25Q4單季每股盈餘" in str(x)), -1)
+        i_accum_eps_target = next((i for i, x in enumerate(h) if "最新累季每股盈餘" in str(x)), -1)
+        i_div_target = next((i for i, x in enumerate(h) if "合計股利" in str(x)), -1)
+        i_payout_target = next((i for i, x in enumerate(h) if "盈餘總分配率" in str(x)), -1)
 
         cells = []
         for r_idx, row in enumerate(data[1:], start=2):
-            if i_c >= len(row): continue
-            code = str(row[i_c]).split('.')[0].strip()
+            code = row[i_c].split('.')[0].strip()
             
-            if code in magic_payout_dict:
-                val = str(magic_payout_dict[code])
-                # 直接將計算出的數值覆蓋掉原本的公式
-                cells.append(gspread.Cell(row=r_idx, col=i_payout_target+1, value=val))
-        
+            if code in stats:
+                d = stats[code]
+                
+                # 🔒 安全鎖 1：有 EPS 才更新
+                if i_accum_eps_target != -1 and d["annual_eps"] != 0:
+                    cells.append(gspread.Cell(row=r_idx, col=i_accum_eps_target+1, value=d["annual_eps"]))
+                    
+                # 🔒 安全鎖 2：有 EPS 才算 Q4，避免還沒公佈財報卻算出負數
+                if i_q4_target != -1 and d["annual_eps"] != 0:
+                    q1_eps = force_float(row[i_q1]) if i_q1 != -1 and i_q1 < len(row) else 0.0
+                    q2_eps = force_float(row[i_q2]) if i_q2 != -1 and i_q2 < len(row) else 0.0
+                    q3_eps = force_float(row[i_q3]) if i_q3 != -1 and i_q3 < len(row) else 0.0
+                    q4_eps_calculated = round(d["annual_eps"] - q1_eps - q2_eps - q3_eps, 2)
+                    cells.append(gspread.Cell(row=r_idx, col=i_q4_target+1, value=q4_eps_calculated))
+                    
+                # 🔒 安全鎖 3：股利大於 0 才寫，避免蓋掉您的歷史防守資料
+                if i_div_target != -1 and d["dividend"] is not None and d["dividend"] > 0:
+                    cells.append(gspread.Cell(row=r_idx, col=i_div_target+1, value=d["dividend"]))
+                    
+                # 🔒 安全鎖 4：股利大於 0 且有 EPS 才算最新配息率
+                if i_payout_target != -1 and d["dividend"] is not None and d["dividend"] > 0 and d["annual_eps"] > 0:
+                    payout = round((d["dividend"] / d["annual_eps"]) * 100, 2)
+                    cells.append(gspread.Cell(row=r_idx, col=i_payout_target+1, value=payout))
+
         if cells:
             ws.update_cells(cells, value_input_option='USER_ENTERED')
-            print(f"📊 {ws.title} 更新完成。成功覆蓋了 {len(cells)} 檔股票的資料！")
+            print(f"📊 {ws.title} 更新完成。寫入了 {len(cells)} 個儲存格。")
 
 if __name__ == "__main__":
-    fetch_and_update_payout()
+    fetch_and_update()
