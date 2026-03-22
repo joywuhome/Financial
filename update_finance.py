@@ -1,6 +1,6 @@
 # ==========================================
-# 📂 檔案名稱： update_finance.py (融合 V193 靈魂終極版)
-# 💡 任務： 抓取上市櫃 EPS + 股利，自動算 Q4，批次寫入當年度表
+# 📂 檔案名稱： update_finance.py (精準防呆完美版)
+# 💡 任務： 抓取上市櫃 EPS + 股利，精準避開營收，自動算 Q4
 # ==========================================
 
 import os
@@ -12,7 +12,7 @@ import json
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# 您今天轉換好的純種 Google 試算表最新網址
+# 您純種 Google 試算表最新網址
 MASTER_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1vsqhH2i8aoRnBwPJ4BJ1eL2vQYGCkqabgG08f8P2A2c/edit"
 
 def get_gspread_client():
@@ -50,7 +50,7 @@ def fetch_and_update():
         if not code: continue
         
         annual_eps = 0.0
-        # 🌟 V193 關鍵：用關鍵字掃描，無視政府全形半形括號陷阱！
+        # 關鍵字掃描：無視全半形陷阱
         for k, v in item.items():
             if '每股盈餘' in k: 
                 annual_eps = force_float(v)
@@ -83,7 +83,7 @@ def fetch_and_update():
         print(f"❌ 股利 抓取失敗: {e}")
 
     # ---------------------------------------------------------
-    # 3. 寫入 Google Sheet (當年度表) - 使用 V193 批次寫入法
+    # 3. 寫入 Google Sheet (當年度表)
     # ---------------------------------------------------------
     client = get_gspread_client()
     spreadsheet = client.open_by_url(MASTER_GSHEET_URL)
@@ -97,12 +97,12 @@ def fetch_and_update():
         i_c = next((i for i, x in enumerate(h) if "代號" in x), -1)
         if i_c == -1: continue
         
-        # 尋找計算 Q4 用的前三季
-        i_q1 = next((i for i, x in enumerate(h) if "25Q1" in str(x).upper()), -1)
-        i_q2 = next((i for i, x in enumerate(h) if "25Q2" in str(x).upper()), -1)
-        i_q3 = next((i for i, x in enumerate(h) if "25Q3" in str(x).upper()), -1)
+        # 🌟 修正重點：精準鎖定「每股盈餘」，避開「單季營收」！
+        i_q1 = next((i for i, x in enumerate(h) if "25Q1單季每股盈餘" in str(x)), -1)
+        i_q2 = next((i for i, x in enumerate(h) if "25Q2單季每股盈餘" in str(x)), -1)
+        i_q3 = next((i for i, x in enumerate(h) if "25Q3單季每股盈餘" in str(x)), -1)
         
-        # 定位四大目標欄位
+        # 定位四大寫入目標欄位
         i_q4_target = next((i for i, x in enumerate(h) if "25Q4單季每股盈餘" in str(x)), -1)
         i_accum_eps_target = next((i for i, x in enumerate(h) if "最新累季每股盈餘" in str(x)), -1)
         i_div_target = next((i for i, x in enumerate(h) if "合計股利" in str(x)), -1)
@@ -115,11 +115,11 @@ def fetch_and_update():
             if code in stats:
                 d = stats[code]
                 
-                # 填入 1: 最新累季每股盈餘(元)
+                # 寫入 1: 累季 EPS
                 if i_accum_eps_target != -1:
                     cells.append(gspread.Cell(row=r_idx, col=i_accum_eps_target+1, value=d["annual_eps"]))
                     
-                # 填入 2: Q4 EPS (累計 - 前三季)
+                # 寫入 2: Q4 EPS
                 if i_q4_target != -1:
                     q1_eps = force_float(row[i_q1]) if i_q1 != -1 and i_q1 < len(row) else 0.0
                     q2_eps = force_float(row[i_q2]) if i_q2 != -1 and i_q2 < len(row) else 0.0
@@ -127,11 +127,11 @@ def fetch_and_update():
                     q4_eps_calculated = round(d["annual_eps"] - q1_eps - q2_eps - q3_eps, 2)
                     cells.append(gspread.Cell(row=r_idx, col=i_q4_target+1, value=q4_eps_calculated))
                     
-                # 填入 3: 合計股利
+                # 寫入 3: 股利
                 if i_div_target != -1 and d["dividend"] is not None:
                     cells.append(gspread.Cell(row=r_idx, col=i_div_target+1, value=d["dividend"]))
                     
-                # 填入 4: 盈餘總分配率
+                # 寫入 4: 盈餘分配率
                 if i_payout_target != -1 and d["dividend"] is not None and d["annual_eps"] > 0:
                     payout = round((d["dividend"] / d["annual_eps"]) * 100, 2)
                     cells.append(gspread.Cell(row=r_idx, col=i_payout_target+1, value=payout))
