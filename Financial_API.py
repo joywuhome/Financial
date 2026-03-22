@@ -1,6 +1,5 @@
 # ==========================================
-# 📂 檔案名稱： Financial_API.py (雙表縫合終極版)
-# 💡 更新內容： 支援當年度/歷史雙表架構、側邊欄更新路徑校準
+# 📂 檔案名稱： Financial_API.py (雙表縫合 + VBA邏輯精準校準版)
 # ==========================================
 
 import streamlit as st
@@ -25,7 +24,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ==========================================
 # 網頁基本設定 & 響應式 CSS 
 # ==========================================
-st.set_page_config(page_title="2026 戰略指揮 (雙表終極版)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="2026 戰略指揮 (精準校準版)", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -48,7 +47,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 🌟 已更新為最新的純種 Google 試算表網址
 MASTER_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1vsqhH2i8aoRnBwPJ4BJ1eL2vQYGCkqabgG08f8P2A2c/edit"
 
 def force_rerun():
@@ -87,7 +85,7 @@ def get_realtime_price(code, default_price):
         except: pass
     return default_price
 
-st.title("📊 2026 戰略指揮 (雙表終極版)")
+st.title("📊 2026 戰略指揮 (精準校準版)")
 
 # ==========================================
 # 📊 核心大腦一：一般/成長股預估引擎
@@ -104,7 +102,6 @@ def auto_strategic_model(name, current_month, rev_last_11, rev_last_12, rev_this
     else: sim_rev_1, sim_rev_2, sim_rev_3 = rev_this_1, rev_this_2, rev_this_3
 
     actual_known_q1 = sum([v for v in [sim_rev_1, sim_rev_2, sim_rev_3] if v > 0])
-    
     ratio_q1 = ly_q1_rev / y1_q4_rev if y1_q4_rev > 0 else 1.0
     
     sum_q2_history = y1_q2_rev + ly_q2_rev
@@ -114,7 +111,13 @@ def auto_strategic_model(name, current_month, rev_last_11, rev_last_12, rev_this
     ratio_q3 = sum_q3_history / sum_q2_history if sum_q2_history > 0 else 1.0
     ratio_q4 = sum_q4_history / sum_q3_history if sum_q3_history > 0 else 1.0
 
-    base_11_12_avg = (rev_last_11 + rev_last_12) / 2
+    # 🌟 重大修復：VBA 記憶防呆邏輯！缺月絕不砍半
+    if rev_last_11 > 0 and rev_last_12 > 0:
+        base_11_12_avg = (rev_last_11 + rev_last_12) / 2
+    elif rev_last_11 > 0:
+        base_11_12_avg = rev_last_11
+    else:
+        base_11_12_avg = rev_last_12
     
     if current_month <= 1: 
         dynamic_base_avg, formula_note = base_11_12_avg, "推演1月(全未知)"
@@ -196,8 +199,15 @@ def financial_strategic_model(name, code, current_month, data, simulated_month):
     elif simulated_month == 3: sim_rev_1, sim_rev_2, sim_rev_3 = rev_this_1, rev_this_2, 0
     else: sim_rev_1, sim_rev_2, sim_rev_3 = rev_this_1, rev_this_2, rev_this_3
 
-    if simulated_month <= 1: dynamic_base_avg = (data["rev_last_11"] + data.get("rev_last_12",0)) / 2
-    elif simulated_month == 2: dynamic_base_avg = sim_rev_1 * 0.9 if sim_rev_1 > 0 else (data["rev_last_11"] + data.get("rev_last_12",0)) / 2
+    # 🌟 重大修復：金融股同步套用 VBA 記憶防呆邏輯
+    r_11 = data.get("rev_last_11", 0)
+    r_12 = data.get("rev_last_12", 0)
+    if r_11 > 0 and r_12 > 0: base_11_12_avg = (r_11 + r_12) / 2
+    elif r_11 > 0: base_11_12_avg = r_11
+    else: base_11_12_avg = r_12
+
+    if simulated_month <= 1: dynamic_base_avg = base_11_12_avg
+    elif simulated_month == 2: dynamic_base_avg = sim_rev_1 * 0.9 if sim_rev_1 > 0 else base_11_12_avg
     elif simulated_month == 3: dynamic_base_avg = (sim_rev_1 * 2 + sim_rev_2) / 3 if sim_rev_2 > 0 else sim_rev_1
     else: dynamic_base_avg = (sim_rev_1 + sim_rev_2 + sim_rev_3) / 3
 
@@ -248,7 +258,7 @@ def financial_strategic_model(name, code, current_month, data, simulated_month):
     }
 
 # ==========================================
-# 🌟 核心快取大腦 (升級：雙表無縫縫合)
+# 🌟 核心快取大腦 (升級：完美疊加縫合)
 # ==========================================
 @st.cache_data(ttl=3600, show_spinner="連線至大數據庫並進行資料縫合...")
 def fetch_gsheet_data():
@@ -260,7 +270,6 @@ def fetch_gsheet_data():
         gen_history_dfs = []
         fin_dfs = []
         
-        # 1. 自動分類「當年度表」與「歷史表單」
         for ws in worksheets:
             if "當年度表" in ws.title:
                 data = ws.get_all_values()
@@ -279,19 +288,17 @@ def fetch_gsheet_data():
         df_history = pd.concat(gen_history_dfs, ignore_index=True) if gen_history_dfs else pd.DataFrame()
         df_finance = pd.concat(fin_dfs, ignore_index=True) if fin_dfs else pd.DataFrame()
 
-        # 2. 記憶體縫合術：用「代號」把歷史資料接在當年度資料後面
+        # 🌟 重大修復：完美疊加縫合術 (Combine First)！解決 1 月營收消失的問題
         if not df_current.empty and not df_history.empty:
             if "代號" in df_current.columns and "代號" in df_history.columns:
-                # 只保留歷史表單中「當年度表沒有的欄位」，避免 _x, _y 重複字尾
-                cols_to_use = df_history.columns.difference(df_current.columns).tolist()
-                cols_to_use.append("代號") 
-                df_general = pd.merge(df_current, df_history[cols_to_use], on="代號", how="left")
+                df_c = df_current.set_index("代號").replace(r'^\s*$', np.nan, regex=True)
+                df_h = df_history.set_index("代號").replace(r'^\s*$', np.nan, regex=True)
+                df_general = df_c.combine_first(df_h).reset_index().fillna("")
             else:
                 df_general = df_current
         else:
             df_general = df_current
 
-        # 3. 沿用您無懈可擊的動態解析引擎！
         def parse_df(df):
             if df is None or df.empty: return {}
             cols = df.columns.tolist()
@@ -422,7 +429,6 @@ if is_admin:
                     res_tpex = []
                     st.warning(f"⚠️ 櫃買中心(上櫃)連線超時，略過更新。錯誤: {e}")
 
-                # 🛡️ 股價專屬防護罩：遇到 '-' 或 '---' 聰明過濾
                 def safe_parse_price(val):
                     try:
                         s = str(val).replace(',', '').strip()
@@ -447,7 +453,6 @@ if is_admin:
                     status.update(label="⚠️ 無法取得報價 (API皆無回應)。", state="error")
                 else:
                     worksheets = get_gspread_client().open_by_url(MASTER_GSHEET_URL).worksheets()
-                    # 🌟 修正重點：目標指向「當年度表」
                     target_sheets = [ws for ws in worksheets if "當年度表" in ws.title or "金融股" in ws.title]
                     cnt = 0
                     for ws in target_sheets:
@@ -490,7 +495,6 @@ if is_admin:
         with st.status(f"鎖定目標欄位【{auto_ym}】...", expanded=True) as status:
             try:
                 worksheets = get_gspread_client().open_by_url(MASTER_GSHEET_URL).worksheets()
-                # 🌟 修正重點：目標指向「當年度表」
                 target_sheets = [ws for ws in worksheets if "當年度表" in ws.title or "金融股" in ws.title]
                 if not target_sheets: status.update(label="任務失敗：找不到分頁", state="error")
                 else:
