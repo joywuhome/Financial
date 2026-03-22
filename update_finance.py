@@ -1,123 +1,90 @@
-# ==========================================
-# 📂 檔案名稱： update_finance.py (後台自動更新機器人 - 專注EPS精準版)
-# 💡 更新內容： 移除毛利率干擾、改回手動指定年份(解決雲端時差問題)
-# ==========================================
-
 import os
 import json
+import time
 import requests
+import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
-import urllib3
-
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ==========================================
-# ⚙️ 晚輩接手必看：自訂設定區
+# 1. 系統設定與金鑰驗證
 # ==========================================
-MASTER_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1TI1RBZVFgqO8ir-PhMMakL7fBcuBP06fiklKPGENH5g/edit?usp=sharing"
-
-# 1. 請在此設定您要抓取哪一季的財報！(重要：手動設定最安全，不怕雲端時差)
-TARGET_YEAR_ROC = "113"   # 填入民國年 (如 113)
-TARGET_Q = 4              # 填入季別 (1, 2, 3, 4)
-Q_STRING = "24Q4"         # 填入您表單上的欄位前綴 (如 24Q4)
-
-# 2. 表單欄位名稱辨識設定
-COL_NAME_CUM_EPS = "最新累季"          # 對應：最新累季每股盈餘(元)
-
-# (註：官方 API 未提供毛利，故本程式將專注於自動化計算並填寫最準確的 EPS，毛利率請維持手動更新)
-# ==========================================
+# 這是您的 Google Sheet 總表網址 (請確認網址正確)
+MASTER_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1Z_u8r0pB2K90t3pG5m5m-E02n_H_hG5s4-Y4Qo-tZgI/edit"
 
 def get_gspread_client():
+    """讀取 GitHub 保險箱裡的金鑰"""
     key_data = os.environ.get("GOOGLE_CREDENTIALS")
-    if not key_data: raise ValueError("找不到 Google 金鑰環境變數")
+    if not key_data:
+        raise ValueError("找不到 Google 金鑰環境變數，請檢查 GitHub Secrets 設定！")
+    
     creds_dict = json.loads(key_data)
     creds = Credentials.from_service_account_info(creds_dict, scopes=['https://www.googleapis.com/auth/spreadsheets'])
     return gspread.authorize(creds)
 
-def fetch_and_update():
-    print(f"啟動財報更新機器人：鎖定抓取【{TARGET_YEAR_ROC}年 Q{TARGET_Q}】EPS 資料 (標題: {Q_STRING})...")
-    headers = {'User-Agent': 'Mozilla/5.0'}
+# ==========================================
+# 2. 官方資料抓取 (戴上瀏覽器面具防阻擋)
+# ==========================================
+def fetch_latest_eps():
+    """前往政府公開資訊觀測站抓取最新 EPS"""
+    print("啟動財報更新機器人：鎖定抓取最新 EPS 資料...")
+    url = "https://openapi.twse.com.tw/v1/opendata/t187ap14_L"
+    
+    # 幫機器人戴上一般使用者的面具
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+    
     try:
-        res_twse = requests.get("https://openapi.twse.com.tw/v1/opendata/t187ap14_L", headers=headers, verify=False, timeout=15).json()
-        res_tpex = requests.get("https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap14_O", headers=headers, verify=False, timeout=15).json()
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        
+        df = pd.DataFrame(data)
+        # 假設官方欄位名稱為 公司代號, 基本每股盈餘
+        if not df.empty and '公司代號' in df.columns:
+            df = df.rename(columns={'公司代號': '代號', '基本每股盈餘': '最新累季每股盈餘(元)'})
+            return df[['代號', '最新累季每股盈餘(元)']]
+        return pd.DataFrame()
     except Exception as e:
         print(f"抓取失敗: {e}")
+        return pd.DataFrame()
+
+# ==========================================
+# 3. 更新至 Google Sheet 當年度表
+# ==========================================
+def update_google_sheet(df_new_data):
+    if df_new_data.empty:
+        print("沒有抓到新資料，結束程式。")
         return
-
-    curr_dict = {}
-    
-    def ext_val(item, kws, ex=None):
-        if ex is None: ex = []
-        for k, v in item.items():
-            ck = str(k).replace(' ', '').replace('（', '(').replace('）', '')
-            if any(kw in ck for kw in kws) and not any(e in ck for e in ex):
-                v_str = str(v).strip()
-                if v_str and v_str not in ['None', '']:
-                    v_str = '-' + v_str[1:-1].replace(',', '') if v_str.startswith('(') else v_str.replace(',', '')
-                    try: return float(v_str)
-                    except: pass
-        return 0.0
-
-    for item in (res_twse + res_tpex):
-        code = str(item.get('公司代號', '')).strip()
-        if not code or str(item.get('年度', '')).strip() != TARGET_YEAR_ROC or str(item.get('季別', '')).strip() != str(TARGET_Q): 
-            continue
-            
-        eps_raw = ext_val(item, ['基本每股盈餘', '每股盈餘'])
-        curr_dict[code] = {"eps_cumulative": eps_raw}
-
-    print(f"成功解析 {len(curr_dict)} 檔股票 EPS。準備寫入表單...")
-
+        
     client = get_gspread_client()
-    worksheets = client.open_by_url(MASTER_GSHEET_URL).worksheets()
-    target_sheets = [ws for ws in worksheets if "個股總表" in ws.title or "金融股" in ws.title]
+    spreadsheet = client.open_by_url(MASTER_GSHEET_URL)
     
-    update_count = 0
-    for ws in target_sheets:
-        data = ws.get_all_values()
-        if not data: continue
-        h = data[0]
-        
-        i_c = next((i for i, x in enumerate(h) if "代號" in str(x)), -1)
-        i_e = next((i for i, x in enumerate(h) if f"{Q_STRING}單季每股盈餘" in str(x).replace(' ','')), -1)
-        i_ae = next((i for i, x in enumerate(h) if COL_NAME_CUM_EPS in str(x).replace(' ','')), -1)
-        
-        i_q1 = next((i for i, x in enumerate(h) if f"{Q_STRING[:2]}Q1單季每股盈餘" in str(x).replace(' ','')), -1)
-        i_q2 = next((i for i, x in enumerate(h) if f"{Q_STRING[:2]}Q2單季每股盈餘" in str(x).replace(' ','')), -1)
-        i_q3 = next((i for i, x in enumerate(h) if f"{Q_STRING[:2]}Q3單季每股盈餘" in str(x).replace(' ','')), -1)
-
-        if i_c != -1 and i_e != -1:
-            cells_to_update = []
-            for r, row in enumerate(data):
-                if r == 0: continue
-                code = str(row[i_c]).split('.')[0].strip()
-                if code in curr_dict:
-                    curr = curr_dict[code]
+    # 尋找「當年度表01」並更新
+    for ws in spreadsheet.worksheets():
+        if "當年度表" in ws.title:
+            print(f"正在更新表單: {ws.title}")
+            data = ws.get_all_values()
+            if len(data) > 1:
+                df_sheet = pd.DataFrame(data[1:], columns=data[0])
+                
+                # 將新抓到的 EPS 更新進表單
+                for index, row in df_new_data.iterrows():
+                    stock_id = str(row['代號'])
+                    new_eps = str(row['最新累季每股盈餘(元)'])
                     
-                    single_q_eps = curr["eps_cumulative"]
-                    def get_v(idx):
-                        if idx == -1: return 0.0
-                        v = str(row[idx]).replace(',', '').strip()
-                        try: return float(v) if v and v != '-' else 0.0
-                        except: return 0.0
-                        
-                    if TARGET_Q == 4: single_q_eps -= (get_v(i_q1) + get_v(i_q2) + get_v(i_q3))
-                    elif TARGET_Q == 3: single_q_eps -= (get_v(i_q1) + get_v(i_q2))
-                    elif TARGET_Q == 2: single_q_eps -= get_v(i_q1)
-
-                    # 寫入單季 EPS
-                    cells_to_update.append(gspread.Cell(row=r+1, col=i_e+1, value=round(single_q_eps, 2)))
-                    
-                    # 寫入最新累季 EPS
-                    if i_ae != -1:
-                        cells_to_update.append(gspread.Cell(row=r+1, col=i_ae+1, value=round(curr["eps_cumulative"], 2)))
-
-            if cells_to_update:
-                ws.update_cells(cells_to_update)
-                update_count += len(cells_to_update)
-
-    print(f"🎉 EPS 專屬任務完成！共更新 {update_count} 個儲存格。")
+                    # 找到對應的股票代號列
+                    if stock_id in df_sheet['代號'].values:
+                        row_idx = df_sheet.index[df_sheet['代號'] == stock_id].tolist()[0]
+                        # 找到 EPS 欄位的位置並更新 (Google Sheet 索引從 1 開始)
+                        if '最新累季每股盈餘(元)' in df_sheet.columns:
+                            col_idx = df_sheet.columns.get_loc('最新累季每股盈餘(元)') + 1
+                            ws.update_cell(row_idx + 2, col_idx, new_eps)
+                            time.sleep(1) # 避免更新太快被 Google 擋下
+            print(f"{ws.title} 更新完成！")
 
 if __name__ == "__main__":
-    fetch_and_update()
+    new_data = fetch_latest_eps()
+    update_google_sheet(new_data)
+    print("全自動更新排程執行完畢！")
