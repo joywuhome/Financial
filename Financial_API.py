@@ -1,5 +1,5 @@
 # ==========================================
-# 📂 檔案名稱： Financial_API.py (終極完整覆蓋版)
+# 📂 檔案名稱： Financial_API.py (終極防撞防當機版)
 # ==========================================
 
 import streamlit as st
@@ -123,7 +123,6 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
     formula_note = f"固定年度標竿{vba_note}"
     dynamic_base_avg = base_11_12_avg
 
-    # 固定年度標竿
     est_q1_rev = est_q1_base_total * ratio_q1 
     est_q2_rev = est_q1_rev
     est_q3_rev = est_q2_rev * ratio_q3
@@ -142,7 +141,6 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
     est_q3_eps_forecast = est_q3_rev * profit_margin_factor
     est_q4_eps_forecast = est_q4_rev * profit_margin_factor
 
-    # A+F 真實滾動
     if actual_q1_eps > 0:
         est_q1_eps_display = actual_q1_eps
         est_full_year_eps = actual_q1_eps + est_q2_eps_forecast + est_q3_eps_forecast + est_q4_eps_forecast
@@ -271,8 +269,23 @@ def financial_strategic_model(name, code, current_month, data, simulated_month, 
     }
 
 # ==========================================
-# 🌟 核心快取大腦
+# 🌟 核心快取大腦 (加入防當機過濾器)
 # ==========================================
+def deduplicate_cols(cols):
+    """防撞過濾器：自動為重複或空白的欄位加上編號，防止程式當機"""
+    seen = {}
+    res = []
+    for c in cols:
+        c_str = str(c).strip()
+        if not c_str: c_str = "未命名欄位"
+        if c_str in seen:
+            seen[c_str] += 1
+            res.append(f"{c_str}_{seen[c_str]}")
+        else:
+            seen[c_str] = 0
+            res.append(c_str)
+    return res
+
 @st.cache_data(ttl=3600, show_spinner="連線至大數據庫...")
 def fetch_gsheet_data_v182():
     try:
@@ -287,11 +300,15 @@ def fetch_gsheet_data_v182():
             if any(n in clean_title for n in ["當年度表", "歷史表單", "個股總表", "總表"]):
                 data = ws.get_all_values()
                 if data and len(data) > 1:
-                    gen_dfs.append(pd.DataFrame(data[1:], columns=data[0]))
+                    # ✅ 套用防撞過濾器
+                    cols = deduplicate_cols(data[0])
+                    gen_dfs.append(pd.DataFrame(data[1:], columns=cols))
             elif "金融股" in clean_title:
                 data = ws.get_all_values()
                 if data and len(data) > 1:
-                    fin_dfs.append(pd.DataFrame(data[1:], columns=data[0]))
+                    # ✅ 套用防撞過濾器
+                    cols = deduplicate_cols(data[0])
+                    fin_dfs.append(pd.DataFrame(data[1:], columns=cols))
                     
         df_general = pd.concat(gen_dfs, ignore_index=True) if gen_dfs else pd.DataFrame()
         df_finance = pd.concat(fin_dfs, ignore_index=True) if fin_dfs else pd.DataFrame()
@@ -328,7 +345,6 @@ def fetch_gsheet_data_v182():
                         return val
                     except: return d
                  
-                # 🌟 修復 10 月份精準讀取 (加上年份前綴)
                 rev_q4 = v(get_col(f"{ly}Q4", "營收", ex=["增", "率", "%"])) or (v(get_col(f"{last_y}M10", "營收", ex=["增", "率", "%"])) + v(get_col(f"{last_y}M11", "營收", ex=["增", "率", "%"])) + v(get_col(f"{last_y}M12", "營收", ex=["增", "率", "%"])))
                 eps_q3, eps_q4 = v(get_col(f"{ly}Q3", "盈餘")), v(get_col(f"{ly}Q4", "盈餘"))
                 rev_q3 = v(get_col(f"{ly}Q3", "營收", ex=["增", "率", "%"]))
