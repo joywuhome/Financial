@@ -1,6 +1,5 @@
 # ==========================================
-# 📂 檔案名稱： Financial_API.py (A+F 真實滾動校準版)
-# 💡 說明： 實裝吳伯伯指定的 A+F 邏輯，當真實 Q1 財報開獎後，自動切換為真實值推估全年！
+# 📂 檔案名稱： Financial_API.py (終極完整覆蓋版)
 # ==========================================
 
 import streamlit as st
@@ -124,7 +123,7 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
     formula_note = f"固定年度標竿{vba_note}"
     dynamic_base_avg = base_11_12_avg
 
-    # 固定標竿營收
+    # 固定年度標竿
     est_q1_rev = est_q1_base_total * ratio_q1 
     est_q2_rev = est_q1_rev
     est_q3_rev = est_q2_rev * ratio_q3
@@ -138,19 +137,17 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
     base_q_total_rev = base_q_avg_rev * 3 if base_q_avg_rev > 0 else 1.0
     profit_margin_factor = base_q_eps * (1 - (non_op_ratio / 100)) / base_q_total_rev 
 
-    # 🌟 吳伯伯專屬：A+F 真實值滾動覆蓋機制
     est_q1_eps_forecast = est_q1_rev * profit_margin_factor
     est_q2_eps_forecast = est_q2_rev * profit_margin_factor
     est_q3_eps_forecast = est_q3_rev * profit_margin_factor
     est_q4_eps_forecast = est_q4_rev * profit_margin_factor
 
+    # A+F 真實滾動
     if actual_q1_eps > 0:
-        # 當表單中有填寫真實的 Q1 EPS 時，立刻改用真實值去推算全年 (Actual + Forecast)
         est_q1_eps_display = actual_q1_eps
         est_full_year_eps = actual_q1_eps + est_q2_eps_forecast + est_q3_eps_forecast + est_q4_eps_forecast
         formula_note += " (A+F: 已結合真實Q1)"
     else:
-        # 如果還沒公佈，就乖乖用全預估值
         est_q1_eps_display = est_q1_eps_forecast
         est_full_year_eps = est_total_rev * profit_margin_factor
 
@@ -217,7 +214,6 @@ def financial_strategic_model(name, code, current_month, data, simulated_month, 
     
     ly_total_eps = data["eps_q1"] + data["eps_q2"] + data["eps_q3"] + data["eps_q4"]
 
-    # 🌟 金融股同步實裝 A+F 真實值滾動覆蓋機制
     if actual_q1_eps > 0:
         est_q1_eps_display = actual_q1_eps
         if data["eps_q1"] > 0 and ly_total_eps > 0:
@@ -275,7 +271,7 @@ def financial_strategic_model(name, code, current_month, data, simulated_month, 
     }
 
 # ==========================================
-# 🌟 核心快取大腦 (智慧合併防覆蓋版)
+# 🌟 核心快取大腦
 # ==========================================
 @st.cache_data(ttl=3600, show_spinner="連線至大數據庫...")
 def fetch_gsheet_data_v182():
@@ -332,7 +328,8 @@ def fetch_gsheet_data_v182():
                         return val
                     except: return d
                  
-                rev_q4 = v(get_col(f"{ly}Q4", "營收", ex=["增", "率", "%"])) or (v(get_col("10單月營收", ex=["增", "%"])) + v(get_col(f"{last_y}M11", "營收", ex=["增", "%"])) + v(get_col(f"{last_y}M12", "營收", ex=["增", "%"])))
+                # 🌟 修復 10 月份精準讀取 (加上年份前綴)
+                rev_q4 = v(get_col(f"{ly}Q4", "營收", ex=["增", "率", "%"])) or (v(get_col(f"{last_y}M10", "營收", ex=["增", "率", "%"])) + v(get_col(f"{last_y}M11", "營收", ex=["增", "率", "%"])) + v(get_col(f"{last_y}M12", "營收", ex=["增", "率", "%"])))
                 eps_q3, eps_q4 = v(get_col(f"{ly}Q3", "盈餘")), v(get_col(f"{ly}Q4", "盈餘"))
                 rev_q3 = v(get_col(f"{ly}Q3", "營收", ex=["增", "率", "%"]))
                 base_eps = eps_q4 if eps_q4 != 0 else (eps_q3 * (rev_q4 / rev_q3) if rev_q3 > 0 else eps_q3)
@@ -366,7 +363,6 @@ def fetch_gsheet_data_v182():
                     "non_op_ratio": non_op_ratio, 
                     "non_op_calc_str": calc_str, 
                     "base_q_avg_rev": rev_q4 / 3 if rev_q4 > 0 else 0,
-                    # 🌟 新增抓取表單中可能的「最新/本年 Q1真實盈餘」，為 A+F 做準備！
                     "actual_q1_eps": v(get_col("今年Q1盈餘", ex=["增"]) or get_col("本年Q1盈餘", ex=["增"]) or get_col("最新Q1EPS", ex=["增"])),
                     "ly_q1_rev": v(get_col(f"{ly}Q1", "營收", ex=["增", "%"])), "ly_q2_rev": v(get_col(f"{ly}Q2", "營收", ex=["增", "%"])), "ly_q3_rev": rev_q3, "ly_q4_rev": rev_q4,
                     "y1_q1_rev": v(get_col(f"{y1}Q1", "營收", ex=["增", "%"])), "y1_q2_rev": v(get_col(f"{y1}Q2", "營收", ex=["增", "%"])), "y1_q3_rev": v(get_col(f"{y1}Q3", "營收", ex=["增", "%"])), "y1_q4_rev": v(get_col(f"{y1}Q4", "營收", ex=["增", "%"])),
@@ -685,7 +681,6 @@ if cached_data:
                         found += 1
                         bar.progress((i+1)/len(vips), f"分析: {code}")
                         pr = get_realtime_price(code, d["price"])
-                        # 🌟 參數補齊：注入 A+F 真實值 actual_q1_eps
                         res_list.append(auto_strategic_model(f"{code} {d['name']}", simulated_month, d.get("rev_last_10",0), d.get("rev_last_11",0), d.get("rev_last_12",0), d.get("rev_this_1",0), d.get("rev_this_2",0), d.get("rev_this_3",0), d["base_q_eps"], d.get("non_op_ratio",0), d["base_q_avg_rev"], d["ly_q1_rev"], d["ly_q2_rev"], d["ly_q3_rev"], d["ly_q4_rev"], d["y1_q1_rev"], d["y1_q2_rev"], d["y1_q3_rev"], d["y1_q4_rev"], d.get("payout",0), pr, d.get("contract_liab",0), d.get("contract_liab_qoq",0), d.get("acc_eps",0), d.get("declared_div",0), d.get("actual_q1_eps",0)))
                 bar.empty()
                 if not found: st.warning("未找到股票")
