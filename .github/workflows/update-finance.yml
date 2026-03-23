@@ -3,7 +3,7 @@ name: 1. 每日財報更新 (EPS與Q4)
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 18 * * *' # 每天台灣時間半夜 2 點執行
+    - cron: '0 18 * * *'
 
 jobs:
   run-python:
