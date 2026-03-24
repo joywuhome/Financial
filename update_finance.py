@@ -1,5 +1,5 @@
 # ==========================================
-# 📂 檔案名稱： update_finance.py (雙效全能版)
+# 📂 檔案名稱： update_finance.py (雙效全能版 - 專屬對應 API 精準校準版)
 # 💡 任務： 每日自動更新【EPS + 算Q4】以及【全市場最新收盤價】！
 # ==========================================
 
@@ -12,7 +12,8 @@ import json
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-MASTER_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1TI1RBZVFgqO8ir-PhMMakL7fBcuBP06fiklKPGENH5g/edit?usp=sharing"
+# 🌟 已經為您換回「精準校準版 (API)」的專屬 Google 表單網址！
+MASTER_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1vsqhH2i8aoRnBwPJ4BJ1eL2vQYGCkqabgG08f8P2A2c/edit"
 
 def get_gspread_client():
     key_data = os.environ.get("GOOGLE_CREDENTIALS")
