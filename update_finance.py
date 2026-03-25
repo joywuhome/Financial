@@ -1,6 +1,7 @@
 # ==========================================
 # 📂 檔案名稱： update_finance.py (精準校準版 專屬五效全能機器人)
 # 💡 任務： 每日自動更新 EPS/Q4 + 股價 + PBR/PER/殖利率
+# ⚠️ 修正： 嚴格鎖定「每股盈餘」字眼，絕不誤扣「單季營收」導致負數！
 # ==========================================
 
 import os
@@ -84,8 +85,8 @@ def fetch_and_update():
         if isinstance(res_twse_price, list):
             for i in res_twse_price:
                 c = str(i.get('Code', '')).strip()
-                p = force_float(i.get('ClosingPrice'))
-                if c and p > 0: market_data.setdefault(c, {})['price'] = p
+                p = safe_parse_price(i.get('ClosingPrice'))
+                if c and p is not None: market_data.setdefault(c, {})['price'] = p
     except: pass
 
     try:
@@ -93,8 +94,8 @@ def fetch_and_update():
         if isinstance(res_tpex_price, list):
             for i in res_tpex_price:
                 c = str(i.get('SecuritiesCompanyCode', '')).strip()
-                p = force_float(i.get('Close'))
-                if c and p > 0: market_data.setdefault(c, {})['price'] = p
+                p = safe_parse_price(i.get('Close'))
+                if c and p is not None: market_data.setdefault(c, {})['price'] = p
     except: pass
 
     try:
@@ -144,9 +145,10 @@ def fetch_and_update():
         i_per = next((i for i, x in enumerate(h) if "本益比" in str(x) or "PER" in str(x).upper()), -1)
         i_yield = next((i for i, x in enumerate(h) if "殖利率" in str(x) and "年化" not in str(x)), -1)
         
-        i_q1 = next((i for i, x in enumerate(h) if "25Q1" in str(x).upper()), -1)
-        i_q2 = next((i for i, x in enumerate(h) if "25Q2" in str(x).upper()), -1)
-        i_q3 = next((i for i, x in enumerate(h) if "25Q3" in str(x).upper()), -1)
+        # 🌟 核心修復：嚴格鎖定「單季每股盈餘」，絕對不能去抓到「單季營收」！
+        i_q1 = next((i for i, x in enumerate(h) if "25Q1" in str(x).upper() and "盈餘" in str(x)), -1)
+        i_q2 = next((i for i, x in enumerate(h) if "25Q2" in str(x).upper() and "盈餘" in str(x)), -1)
+        i_q3 = next((i for i, x in enumerate(h) if "25Q3" in str(x).upper() and "盈餘" in str(x)), -1)
         
         i_op_m_target = next((i for i, x in enumerate(h) if "最新單季營益率" in str(x)), -1)
         i_q4_target = next((i for i, x in enumerate(h) if "25Q4單季每股盈餘" in str(x)), -1)
@@ -178,6 +180,7 @@ def fetch_and_update():
                 if i_accum_eps_target != -1:
                     cells.append(gspread.Cell(row=r_idx, col=i_accum_eps_target+1, value=d["annual_eps"]))
                 if i_q4_target != -1:
+                    # 這裡只會抓到真正的 EPS 去扣除了，不會再拿營收來扣！
                     q1_eps = force_float(row[i_q1]) if i_q1 != -1 and i_q1 < len(row) else 0.0
                     q2_eps = force_float(row[i_q2]) if i_q2 != -1 and i_q2 < len(row) else 0.0
                     q3_eps = force_float(row[i_q3]) if i_q3 != -1 and i_q3 < len(row) else 0.0
