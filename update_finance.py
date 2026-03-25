@@ -1,6 +1,6 @@
 # ==========================================
-# 📂 檔案名稱： update_finance.py (V193 五效全能完美版)
-# 💡 策略： EPS/Q4 + 股價 + PBR/PER/殖利率，每日全自動更新！
+# 📂 檔案名稱： update_finance.py (精準校準版 專屬五效全能機器人)
+# 💡 任務： 每日自動更新 EPS/Q4 + 股價 + PBR/PER/殖利率
 # ==========================================
 
 import os
@@ -12,8 +12,8 @@ import json
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# V193 專屬的 Google Sheet 網址
-MASTER_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1TI1RBZVFgqO8ir-PhMMakL7fBcuBP06fiklKPGENH5g/edit"
+# 🌟 精準校準版的專屬 Google Sheet 網址
+MASTER_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1vsqhH2i8aoRnBwPJ4BJ1eL2vQYGCkqabgG08f8P2A2c/edit"
 
 def get_gspread_client():
     key_data = os.environ.get("GOOGLE_CREDENTIALS") or os.environ.get("GOOGLE_KEY_JSON")
@@ -28,6 +28,13 @@ def force_float(v):
     if s.startswith('(') and s.endswith(')'): s = '-' + s[1:-1]
     try: return float(s)
     except: return 0.0
+
+def safe_parse_price(val):
+    try:
+        s = str(val).replace(',', '').strip()
+        if not s or s == '-' or s == '--' or s == '---': return None
+        return float(s)
+    except: return None
 
 def fetch_and_update():
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -67,12 +74,11 @@ def fetch_and_update():
             }
 
     # ---------------------------------------------------------
-    # 任務二 & 三：抓取 盤後股價 與 PBR/PER/殖利率
+    # 任務二：抓取 盤後股價 與 PBR/PER/殖利率
     # ---------------------------------------------------------
     print("\n📡 任務二：下載最新【盤後數據與估值 (股價/PBR/PER/殖利率)】...")
     market_data = {}
     
-    # 上市股價
     try:
         res_twse_price = requests.get("https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL", headers=headers, verify=False, timeout=30).json()
         if isinstance(res_twse_price, list):
@@ -82,7 +88,6 @@ def fetch_and_update():
                 if c and p > 0: market_data.setdefault(c, {})['price'] = p
     except: pass
 
-    # 上櫃股價
     try:
         res_tpex_price = requests.get("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes", headers=headers, verify=False, timeout=30).json()
         if isinstance(res_tpex_price, list):
@@ -92,7 +97,6 @@ def fetch_and_update():
                 if c and p > 0: market_data.setdefault(c, {})['price'] = p
     except: pass
 
-    # 上市估值 (PBR, PER, 殖利率)
     try:
         res_twse_val = requests.get("https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL", headers=headers, verify=False, timeout=30).json()
         if isinstance(res_twse_val, list):
@@ -104,7 +108,6 @@ def fetch_and_update():
                     market_data.setdefault(c, {})['pbr'] = force_float(i.get('PBratio'))
     except: pass
 
-    # 上櫃估值 (PBR, PER, 殖利率)
     try:
         res_tpex_val = requests.get("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_perpeild", headers=headers, verify=False, timeout=30).json()
         if isinstance(res_tpex_val, list):
@@ -117,7 +120,7 @@ def fetch_and_update():
     except: pass
 
     # ---------------------------------------------------------
-    # 任務四：開始寫入 Google 表單
+    # 任務三：開始寫入 Google 表單
     # ---------------------------------------------------------
     print("\n📝 任務三：開始寫入 Google 表單...")
     try:
@@ -134,7 +137,6 @@ def fetch_and_update():
         if not data: continue
         
         h = data[0]
-        # 尋找各種欄位座標
         i_c = next((i for i, x in enumerate(h) if str(x).strip() in ["代號", "股票代號", "證券代號"]), -1)
         i_price = next((i for i, x in enumerate(h) if str(x).strip() in ["成交", "股價", "最新股價", "收盤價"]), -1)
         
@@ -158,7 +160,7 @@ def fetch_and_update():
             if i_c >= len(row): continue
             code = str(row[i_c]).split('.')[0].strip()
             
-            # 【寫入 市場資料 (股價/估值)】
+            # 【寫入 市場資料】
             if code in market_data:
                 m = market_data[code]
                 if i_price != -1 and m.get('price', 0) > 0:
@@ -170,7 +172,7 @@ def fetch_and_update():
                 if i_yield != -1 and m.get('yield', 0) > 0:
                     cells.append(gspread.Cell(row=r_idx, col=i_yield+1, value=m['yield']))
             
-            # 【寫入 財報四大數據】
+            # 【寫入 財報資料】
             if code in stats:
                 d = stats[code]
                 if i_accum_eps_target != -1:
