@@ -1,6 +1,6 @@
 # ==========================================
 # 📂 檔案名稱： Financial_API.py (黃金公式絕對鎖死版)
-# 💡 更新內容： 徹底清理舊公式殘骸，營收標竿鎖死 11-12 月，完美對齊 1.52！
+# 💡 更新內容： 嚴格執行吳伯伯的 1月x2+2月 營收邏輯與 Q4/Q3 業外自動判讀！
 # ==========================================
 
 import streamlit as st
@@ -112,33 +112,64 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
     ratio_q3 = sum_q3_history / sum_q2_history if sum_q2_history > 0 else 1.0
     ratio_q4 = sum_q4_history / sum_q3_history if sum_q3_history > 0 else 1.0
 
-    # 🌟 紅色標竿：永遠鎖死 11、12 月均值 (或 10、11月)
+    # 🌟 紅色標竿
     if rev_last_12 > 0:
         base_11_12_avg = (rev_last_11 + rev_last_12) / 2
-        formula_note = "固定標竿推估"
     else:
         base_11_12_avg = (rev_last_10 + rev_last_11 + (rev_last_11 * 0.9)) / 3
-        formula_note = "固定標竿推估(缺12月)"
+        
+    benchmark_q1_rev = (base_11_12_avg * 3) * ratio_q1 
+    benchmark_q2_rev = benchmark_q1_rev
+    benchmark_q3_rev = benchmark_q2_rev * ratio_q3
+    benchmark_q4_rev = benchmark_q3_rev * ratio_q4
 
-    # 🌟 吳伯伯指定：成長股的預估營收絕對「不隨 1,2 月浮動」，嚴格使用紅色標竿！
-    est_q1_base_total = base_11_12_avg * 3
-    
-    est_q1_rev = est_q1_base_total * ratio_q1 
-    est_q2_rev = est_q1_rev
-    est_q3_rev = est_q2_rev * ratio_q3
-    est_q4_rev = est_q3_rev * ratio_q4
-    est_total_rev = est_q1_rev + est_q2_rev + est_q3_rev + est_q4_rev
+    # 🌟 嚴格遵守吳伯伯指定邏輯：(1月x2 + 2月)
+    if current_month <= 1: 
+        dynamic_est_q1_rev = benchmark_q1_rev
+        dynamic_base_avg = base_11_12_avg
+        formula_note = "動態EPS推估 (全未知)"
+    elif current_month == 2: 
+        if sim_rev_1 > 0:
+            dynamic_est_q1_rev = sim_rev_1 * 0.9 * 3
+            dynamic_base_avg = dynamic_est_q1_rev / 3
+            formula_note = "動態EPS推估 (1月x0.9x3)"
+        else:
+            dynamic_est_q1_rev = benchmark_q1_rev
+            dynamic_base_avg = base_11_12_avg
+            formula_note = "動態EPS推估 (無1月用標竿)"
+    elif current_month == 3: 
+        if sim_rev_2 > 0:
+            # 💡 就是這裡！乖乖換回 1月x2 + 2月
+            dynamic_est_q1_rev = (sim_rev_1 * 2) + sim_rev_2
+            dynamic_base_avg = dynamic_est_q1_rev / 3
+            formula_note = "動態EPS推估 (1月x2+2月)"
+        elif sim_rev_1 > 0:
+            dynamic_est_q1_rev = sim_rev_1 * 0.9 * 3
+            dynamic_base_avg = dynamic_est_q1_rev / 3
+            formula_note = "動態EPS推估 (僅知1月x0.9x3)"
+        else:
+            dynamic_est_q1_rev = benchmark_q1_rev
+            dynamic_base_avg = base_11_12_avg
+            formula_note = "動態EPS推估 (無1,2月用標竿)"
+    else: 
+        dynamic_est_q1_rev = sim_rev_1 + sim_rev_2 + sim_rev_3
+        dynamic_base_avg = dynamic_est_q1_rev / 3
+        formula_note = "動態EPS推估 (知Q1)"
 
-    # 🌟 吳伯伯黃金公式：近期 EPS * (1 - 業外%) * (標竿預估營收 / 基準營收)
+    dynamic_est_q2_rev = dynamic_est_q1_rev
+    dynamic_est_q3_rev = dynamic_est_q2_rev * ratio_q3
+    dynamic_est_q4_rev = dynamic_est_q3_rev * ratio_q4
+    dynamic_total_rev = dynamic_est_q1_rev + dynamic_est_q2_rev + dynamic_est_q3_rev + dynamic_est_q4_rev
+
+    # 🌟 EPS 黃金公式
     safe_base_rev = base_q_total_rev if base_q_total_rev > 0 else 1.0
     profit_margin_factor = base_q_eps * (1 - (non_op_ratio / 100)) / safe_base_rev 
 
-    est_q1_eps_forecast = est_q1_rev * profit_margin_factor
-    est_q2_eps_forecast = est_q2_rev * profit_margin_factor
-    est_q3_eps_forecast = est_q3_rev * profit_margin_factor
-    est_q4_eps_forecast = est_q4_rev * profit_margin_factor
+    est_q1_eps_forecast = dynamic_est_q1_rev * profit_margin_factor
+    est_q2_eps_forecast = dynamic_est_q2_rev * profit_margin_factor
+    est_q3_eps_forecast = dynamic_est_q3_rev * profit_margin_factor
+    est_q4_eps_forecast = dynamic_est_q4_rev * profit_margin_factor
 
-    # A+F 滾動推估 (只有真實 Q1 出爐才會替換)
     if actual_q1_eps > 0:
         est_q1_eps_display = actual_q1_eps
         est_full_year_eps = actual_q1_eps + est_q2_eps_forecast + est_q3_eps_forecast + est_q4_eps_forecast
@@ -148,9 +179,9 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
         est_full_year_eps = est_q1_eps_forecast + est_q2_eps_forecast + est_q3_eps_forecast + est_q4_eps_forecast
 
     est_per = current_price / est_full_year_eps if est_full_year_eps > 0 else 0
-    q1_yoy = ((est_q1_rev - ly_q1_rev) / ly_q1_rev) * 100 if ly_q1_rev > 0 else 0
+    q1_yoy = ((dynamic_est_q1_rev - ly_q1_rev) / ly_q1_rev) * 100 if ly_q1_rev > 0 else 0
     ly_total_rev = (ly_q1_rev + ly_q2_rev + ly_q3_rev + ly_q4_rev)
-    est_annual_yoy = ((est_total_rev - ly_total_rev) / ly_total_rev) * 100 if ly_total_rev > 0 else 0
+    est_annual_yoy = ((dynamic_total_rev - ly_total_rev) / ly_total_rev) * 100 if ly_total_rev > 0 else 0
     
     payout_note = ""
     if acc_eps > 0 and declared_div > 0:
@@ -182,7 +213,7 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
     return {
         "股票名稱": name, "最新股價": round(current_price, 2), 
         "_logic_note": formula_note, "_payout_note": "", 
-        "當季預估均營收": round(base_11_12_avg, 2), "季成長率(YoY)%": round(q1_yoy, 2),
+        "當季預估均營收": round(dynamic_base_avg, 2), "季成長率(YoY)%": round(q1_yoy, 2),
         "前瞻殖利率(%)": round(forward_yield, 2), "預估今年Q1_EPS": round(est_q1_eps_display, 2), 
         "預估今年度_EPS": round(est_full_year_eps, 2), "最新累季EPS": acc_eps, "本益比(PER)": round(est_per, 2),         
         "預估年成長率(%)": round(est_annual_yoy, 2), "運算配息率(%)": calc_payout_ratio, "配息基準": payout_note,
@@ -191,7 +222,7 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
         "_ly_qs": [round(ly_q1_rev, 2), round(ly_q2_rev, 2), round(ly_q3_rev, 2), round(ly_q4_rev, 2)], 
         "_known_qs": [round(actual_known_q1, 2), 0, 0, 0],
         "_known_q1_months": [round(max(0, sim_rev_1), 2), round(max(0, sim_rev_2), 2), round(max(0, sim_rev_3), 2)],
-        "_total_est_qs": [round(est_q1_rev, 2), round(est_q2_rev, 2), round(est_q3_rev, 2), round(est_q4_rev, 2)]
+        "_total_est_qs": [round(benchmark_q1_rev, 2), round(benchmark_q2_rev, 2), round(benchmark_q3_rev, 2), round(benchmark_q4_rev, 2)]
     }
 
 # ==========================================
@@ -374,11 +405,26 @@ def fetch_gsheet_data_v182():
                 eps_q3, eps_q4 = v(get_col(f"{ly}Q3", "盈餘")), v(get_col(f"{ly}Q4", "盈餘"))
                 rev_q3 = v(get_col(f"{ly}Q3", "營收", ex=["增", "率", "%"]))
                 
-                # 🌟 吳伯伯指定：判讀 Q4 是否有數據，若無，用 Q3 乘上 (Q4營收/Q3營收) 算出 Q4！
-                base_eps = eps_q4 if eps_q4 != 0 else (eps_q3 * (rev_q4 / rev_q3) if rev_q3 > 0 else eps_q3)
+                # 🌟 絕對精準：判讀 Q4 是否有數據，若無，用 Q3 退守！
+                op_q4 = v(get_col(f"{ly}Q4", "營益", ex=["率", "%", "增", "每股", "佔"]))
+                nop_q4 = v(get_col(f"{ly}Q4", "業外損益", ex=["率", "%", "增", "每股", "佔"]))
+                op_q3 = v(get_col(f"{ly}Q3", "營益", ex=["率", "%", "增", "每股", "佔"]))
+                nop_q3 = v(get_col(f"{ly}Q3", "業外損益", ex=["率", "%", "增", "每股", "佔"]))
 
-                # 🌟 直接讀取表單算好的「業外佔比」，不再瞎算
-                non_op_ratio = v(get_col("單季業外損益佔稅前淨利") or get_col("業外損益佔稅前淨利") or get_col("業外", "稅前淨利") or get_col("業外佔比"))
+                if eps_q4 != 0 or op_q4 != 0 or nop_q4 != 0:
+                    base_op = op_q4
+                    base_nop = nop_q4
+                    base_q_total_rev = rev_q4
+                    base_eps = eps_q4
+                else:
+                    base_op = op_q3
+                    base_nop = nop_q3
+                    base_q_total_rev = rev_q3
+                    base_eps = eps_q3
+                    
+                # 🌟 用最嚴謹的方式重新計算業外佔比
+                denom = base_op + base_nop
+                non_op_ratio = (base_nop / denom * 100) if denom != 0 else 0.0
 
                 new_entry = {
                     "name": str(row[c_name]) if c_name else "未知", 
@@ -391,7 +437,7 @@ def fetch_gsheet_data_v182():
                     "rev_this_3": v(get_col(f"{this_y}M03", "營收", ex=["增", "率", "%"])),
                     "base_q_eps": base_eps, 
                     "non_op_ratio": non_op_ratio, 
-                    "base_q_total_rev": rev_q4, # 🌟 公式分母永遠對應 Q4 營收
+                    "base_q_total_rev": base_q_total_rev, 
                     "actual_q1_eps": v(get_col("今年Q1盈餘", ex=["增"]) or get_col("本年Q1盈餘", ex=["增"]) or get_col("最新Q1EPS", ex=["增"])),
                     "ly_q1_rev": v(get_col(f"{ly}Q1", "營收", ex=["增", "%"])), "ly_q2_rev": v(get_col(f"{ly}Q2", "營收", ex=["增", "%"])), "ly_q3_rev": rev_q3, "ly_q4_rev": rev_q4,
                     "y1_q1_rev": v(get_col(f"{y1}Q1", "營收", ex=["增", "%"])), "y1_q2_rev": v(get_col(f"{y1}Q2", "營收", ex=["增", "%"])), "y1_q3_rev": v(get_col(f"{y1}Q3", "營收", ex=["增", "%"])), "y1_q4_rev": v(get_col(f"{y1}Q4", "營收", ex=["增", "%"])),
@@ -569,7 +615,7 @@ if is_admin:
                     def safe_parse_number(val):
                         try:
                             s = str(val).replace(',', '').replace('%', '').strip()
-                            if not s or s == '-': return None
+                            if not s or s == '-' or s == '--' or s == '---': return None
                             return float(s)
                         except: return None
 
@@ -761,7 +807,7 @@ if cached_data:
                                 safe_grow = get_safe_float(row.get('預估年成長率(%)', 0))
                                 safe_non_op = get_safe_float(row.get('最新業外佔比(%)', 0))
                                 
-                                # 🌟 徹底拔除「(公式: ...)」文字，還給您乾淨的介面
+                                # 🌟 把 UI 上礙眼的公式徹底砍了，只留乾淨數字
                                 st.markdown(
                                     f"股價 {safe_price:.2f}元 ｜ "
                                     f"前瞻殖利率 {safe_yield:.2f}%<br>"
