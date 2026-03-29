@@ -286,4 +286,249 @@ def financial_strategic_model(name, code, current_month, data, simulated_month, 
 
     if simulated_month <= 1: 
         dynamic_est_q1_rev = data.get("ly_q4_rev", 0) 
-        dynamic_base_avg = dynamic_est_q1_rev / 3 if dynamic_est_q1_
+        dynamic_base_avg = dynamic_est_q1_rev / 3 if dynamic_est_q1_rev > 0 else 0
+    elif simulated_month == 2: 
+        dynamic_base_avg = sim_rev_1
+        dynamic_est_q1_rev = dynamic_base_avg * 3
+    elif simulated_month == 3: 
+        if sim_rev_2 > 0: 
+            dynamic_base_avg = (sim_rev_1 + sim_rev_2) / 2
+            dynamic_est_q1_rev = dynamic_base_avg * 3
+        else: 
+            dynamic_base_avg = sim_rev_1
+            dynamic_est_q1_rev = dynamic_base_avg * 3
+    else: 
+        if sim_rev_3 > 0:
+            dynamic_est_q1_rev = sim_rev_1 + sim_rev_2 + sim_rev_3
+        elif sim_rev_2 > 0:
+            dynamic_est_q1_rev = ((sim_rev_1 + sim_rev_2) / 2) * 3
+        elif sim_rev_1 > 0:
+            dynamic_est_q1_rev = sim_rev_1 * 3
+        else:
+            dynamic_est_q1_rev = data.get("ly_q4_rev", 0)
+        dynamic_base_avg = dynamic_est_q1_rev / 3
+
+    base_eps = data["eps_q4"] if data.get("eps_q4", 0) != 0 else data.get("eps_q3", 0)
+    base_rev = data["ly_q4_rev"] if data.get("ly_q4_rev", 0) > 0 else data.get("ly_q3_rev", 1)
+    
+    if base_rev > 0:
+        est_q1_eps_forecast = base_eps * (dynamic_est_q1_rev / base_rev)
+    else:
+        est_q1_eps_forecast = 0
+    
+    ly_total_eps = data.get("eps_q1",0) + data.get("eps_q2",0) + data.get("eps_q3",0) + data.get("eps_q4",0)
+
+    if actual_q1_eps > 0:
+        est_q1_eps_display = actual_q1_eps
+        if data.get("eps_q1",0) > 0 and ly_total_eps > 0:
+            est_fy_eps = actual_q1_eps * (ly_total_eps / data["eps_q1"])
+        elif ly_total_eps > 0:
+            est_fy_eps = actual_q1_eps + data.get("eps_q2",0) + data.get("eps_q3",0) + data.get("eps_q4",0)
+        else:
+            est_fy_eps = actual_q1_eps * 4
+    else:
+        est_q1_eps_display = est_q1_eps_forecast
+        if data.get("eps_q1",0) > 0 and ly_total_eps > 0: 
+            est_fy_eps = est_q1_eps_forecast * (ly_total_eps / data["eps_q1"])
+        elif ly_total_eps > 0: 
+            est_fy_eps = est_q1_eps_forecast + data.get("eps_q2",0) + data.get("eps_q3",0) + data.get("eps_q4",0)
+        else: 
+            est_fy_eps = est_q1_eps_forecast * 4
+        
+    current_price = float(data.get("price", 0))
+    est_per = current_price / est_fy_eps if est_fy_eps > 0 else 0
+    
+    f_acc_eps = data.get("acc_eps", 0)
+    f_declared_div = data.get("declared_div", 0)
+    payout_note = ""
+
+    if f_acc_eps > 0 and f_declared_div > 0:
+        raw_payout = (f_declared_div / f_acc_eps) * 100
+        if raw_payout > 100:
+            payout_ratio = 80.0
+            payout_note = "⚠️ 最新計算(防守填80%)"
+        elif raw_payout <= 0:
+            payout_ratio = 50.0
+            payout_note = "🛡️ 最新計算(防守填50%)"
+        else:
+            payout_ratio = raw_payout
+            payout_note = "✅ 最新股利/累計盈餘"
+    else:
+        raw_payout = data.get("payout", 0)
+        if raw_payout > 100:
+            payout_ratio = 80.0
+            payout_note = "⚠️ 歷史配息(防守填80%)"
+        elif raw_payout <= 0:
+            payout_ratio = 50.0
+            payout_note = "🛡️ 無資料(防守填50%)"
+        else:
+            payout_ratio = raw_payout
+            payout_note = "🕒 表單歷史配息率"
+            
+    est_dividend = est_fy_eps * (payout_ratio / 100)
+    forward_yield = (max(f_declared_div, est_dividend) / current_price) * 100 if current_price > 0 else 0
+        
+    return {
+        "股票名稱": f"{code} {data['name']}", 
+        "最新股價": round(current_price, 2), 
+        "PBR(股價淨值比)": round(data.get("pbr", 0), 2),
+        "前瞻殖利率(%)": round(forward_yield, 2), 
+        "近10年平均合計殖利率(%)": round(data.get("annual_yield", 0), 2),
+        "前瞻PER": round(est_per, 2), 
+        "原始PER": round(data.get("orig_per", 0), 2), 
+        "預估今年Q1_EPS": round(est_q1_eps_forecast, 2),
+        "實際Q1_EPS": actual_q1_eps,
+        "預估今年度_EPS": round(est_fy_eps, 2), 
+        "運算配息率(%)": payout_ratio, 
+        "配息基準": payout_note, 
+        "當季預估均營收(億)": round(dynamic_base_avg, 2)
+    }
+
+# ==========================================
+# 🌟 核心快取大腦
+# ==========================================
+def deduplicate_cols(cols):
+    seen = {}
+    res = []
+    for c in cols:
+        c_str = str(c).strip()
+        if not c_str: c_str = "未命名欄位"
+        if c_str in seen:
+            seen[c_str] += 1
+            res.append(f"{c_str}_{seen[c_str]}")
+        else:
+            seen[c_str] = 0
+            res.append(c_str)
+    return res
+
+@st.cache_data(ttl=600, show_spinner="連線至大數據庫...")
+def fetch_gsheet_data_v182():
+    try:
+        client = get_gspread_client()
+        worksheets = client.open_by_url(MASTER_GSHEET_URL).worksheets()
+        
+        gen_dfs = []
+        fin_dfs = []
+        
+        for ws in worksheets:
+            clean_title = ws.title.replace(" ", "")
+            if any(n in clean_title for n in ["當年度表", "歷史表單", "個股總表", "總表"]):
+                data = ws.get_all_values()
+                if data and len(data) > 1:
+                    cols = deduplicate_cols(data[0])
+                    gen_dfs.append(pd.DataFrame(data[1:], columns=cols))
+            elif "金融股" in clean_title:
+                data = ws.get_all_values()
+                if data and len(data) > 1:
+                    cols = deduplicate_cols(data[0])
+                    fin_dfs.append(pd.DataFrame(data[1:], columns=cols))
+                    
+        df_general = pd.concat(gen_dfs, ignore_index=True) if gen_dfs else pd.DataFrame()
+        df_finance = pd.concat(fin_dfs, ignore_index=True) if fin_dfs else pd.DataFrame()
+
+        def parse_df(df):
+            if df is None or df.empty: return {}
+            cols = df.columns.tolist()
+            yp = [int(m.group(1)) for c in cols for m in [re.search(r'(\d{2})M\d{2}單月營收', str(c).replace(' ', ''))] if m and "增" not in str(c)]
+            this_y = str(max(yp)) if yp else "26"
+            last_y = str(int(this_y) - 1)
+            ly = last_y
+            y1 = str(int(ly) - 1) 
+
+            def get_col(k1, k2="", ex=[]):
+                for c in cols:
+                    cc = str(c).replace('\n', '').replace(' ', '')
+                    if k1 in cc and k2 in cc and not any(e in cc for e in ex): return c
+                return None
+                
+            c_code, c_name = get_col("代號"), get_col("名稱")
+            db = {}
+            for idx, row in df.iterrows():
+                code = str(row[c_code]).split('.')[0].strip() if c_code and pd.notna(row[c_code]) else ""
+                if len(code) < 3: continue 
+                
+                def v(c_name, d=0.0):
+                    if not c_name or pd.isna(row[c_name]): return d
+                    val_str = str(row[c_name]).replace(',', '').strip()
+                    if not val_str or val_str.lower() in ['-', 'nan', 'inf', '-inf', 'infinity', '-infinity', '#n/a', 'n/a', '#div/0!']: return d
+                    try: 
+                        val = float(val_str)
+                        if math.isnan(val) or math.isinf(val): return d
+                        return val
+                    except: return d
+                 
+                rev_q4 = v(get_col(f"{ly}Q4", "營收", ex=["增", "率", "%"])) or (v(get_col(f"{last_y}M10", "營收", ex=["增", "率", "%"])) + v(get_col(f"{last_y}M11", "營收", ex=["增", "率", "%"])) + v(get_col(f"{last_y}M12", "營收", ex=["增", "率", "%"])))
+                eps_q3, eps_q4 = v(get_col(f"{ly}Q3", "盈餘")), v(get_col(f"{ly}Q4", "盈餘"))
+                rev_q3 = v(get_col(f"{ly}Q3", "營收", ex=["增", "率", "%"]))
+                
+                op_q4 = v(get_col(f"{ly}Q4", "營益", ex=["率", "%", "增", "每股", "佔"]))
+                nop_q4 = v(get_col(f"{ly}Q4", "業外損益", ex=["率", "%", "增", "每股", "佔"]))
+                op_q3 = v(get_col(f"{ly}Q3", "營益", ex=["率", "%", "增", "每股", "佔"]))
+                nop_q3 = v(get_col(f"{ly}Q3", "業外損益", ex=["率", "%", "增", "每股", "佔"]))
+
+                if eps_q4 != 0 or op_q4 != 0 or nop_q4 != 0:
+                    base_op = op_q4
+                    base_nop = nop_q4
+                    base_q_total_rev = rev_q4
+                    base_eps = eps_q4
+                else:
+                    base_op = op_q3
+                    base_nop = nop_q3
+                    base_q_total_rev = rev_q3
+                    base_eps = eps_q3
+                    
+                denom = base_op + base_nop
+                non_op_ratio = (base_nop / denom * 100) if denom != 0 else 0.0
+
+                new_entry = {
+                    "name": str(row[c_name]) if c_name else "未知", 
+                    "industry": str(row[get_col("產業") or get_col("類別")]).strip() if (get_col("產業") or get_col("類別")) else "未分類",
+                    "rev_last_10": v(get_col(f"{last_y}M10", "營收", ex=["增", "率", "%"])), 
+                    "rev_last_11": v(get_col(f"{last_y}M11", "營收", ex=["增", "率", "%"])), 
+                    "rev_last_12": v(get_col(f"{last_y}M12", "營收", ex=["增", "率", "%"])),
+                    "rev_this_1": v(get_col(f"{this_y}M01", "營收", ex=["增", "率", "%"])), 
+                    "rev_this_2": v(get_col(f"{this_y}M02", "營收", ex=["增", "率", "%"])), 
+                    "rev_this_3": v(get_col(f"{this_y}M03", "營收", ex=["增", "率", "%"])),
+                    "rev_this_4": v(get_col(f"{this_y}M04", "營收", ex=["增", "率", "%"])),
+                    "rev_this_5": v(get_col(f"{this_y}M05", "營收", ex=["增", "率", "%"])),
+                    "rev_this_6": v(get_col(f"{this_y}M06", "營收", ex=["增", "率", "%"])),
+                    "base_q_eps": base_eps, 
+                    "non_op_ratio": non_op_ratio, 
+                    "base_q_total_rev": base_q_total_rev, 
+                    "actual_q1_eps": v(get_col(f"{this_y}Q1", "盈餘", ex=["增"]) or get_col("今年Q1盈餘", ex=["增"]) or get_col("本年Q1盈餘", ex=["增"]) or get_col("最新Q1EPS", ex=["增"])),
+                    "ly_q1_rev": v(get_col(f"{ly}Q1", "營收", ex=["增", "%"])), "ly_q2_rev": v(get_col(f"{ly}Q2", "營收", ex=["增", "%"])), "ly_q3_rev": rev_q3, "ly_q4_rev": rev_q4,
+                    "y1_q1_rev": v(get_col(f"{y1}Q1", "營收", ex=["增", "%"])), "y1_q2_rev": v(get_col(f"{y1}Q2", "營收", ex=["增", "%"])), "y1_q3_rev": v(get_col(f"{y1}Q3", "營收", ex=["增", "%"])), "y1_q4_rev": v(get_col(f"{y1}Q4", "營收", ex=["增", "%"])),
+                    "eps_q1": v(get_col(f"{ly}Q1", "盈餘")), "eps_q2": v(get_col(f"{ly}Q2", "盈餘")), "eps_q3": eps_q3, "eps_q4": eps_q4,
+                    "pbr": v(get_col("PBR") or get_col("淨值比")), 
+                    "div_years": v(get_col("連配次數") or get_col("連續配發")),
+                    "orig_per": v(get_col("PER", ex=["前瞻", "預估"])), 
+                    "annual_yield": v(get_col("近10年平均合計殖利率") or get_col("年化合計殖利率") or get_col("年化", "殖利率")),
+                    "payout": v(get_col("盈餘總分配率") or get_col("分配率")), 
+                    "price": v(get_col("成交", ex=["量", "值", "比"]) or get_col("股價", ex=["比", "淨值"])), 
+                    "acc_eps": v(get_col("最新累季每股盈餘") or get_col("累季", "盈餘")),
+                    "contract_liab": v(get_col("合約負債", ex=["季增"])), "contract_liab_qoq": v(get_col("合約負債季增") or get_col("季增", "負債")), "declared_div": v(get_col("合計股利"))
+                }
+
+                if code not in db:
+                    db[code] = new_entry
+                else:
+                    for k, val in new_entry.items():
+                        if val and val not in [0, 0.0, "", "未知", "未分類"]:
+                            db[code][k] = val
+
+            return db
+        return {"general": parse_df(df_general), "finance": parse_df(df_finance)}
+    except Exception as e: return {"error": str(e)}
+
+cached_data = fetch_gsheet_data_v182()
+if cached_data and "error" in cached_data:
+    st.error(f"檔案解析失敗。錯誤：{cached_data['error']}")
+    cached_data = None
+
+# ==========================================
+# 側邊欄：登入與動態權限判斷
+# ==========================================
+if st.sidebar.button("🔄 重新載入最新表單資料", type="primary", use_container_width=True):
+    clear_cache_and_session()
+    st.sidebar.success("✅ 重新載入中...")
+    time.
