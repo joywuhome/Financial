@@ -1,7 +1,6 @@
 # ==========================================
 # 📂 檔案名稱： Financial_API.py (黃金公式絕對鎖死版)
-# 💡 更新內容： 嚴格執行吳伯伯的 1月x2+2月 營收邏輯、Q4/Q3 業外自動判讀！
-# 📈 視覺升級： Slider 預設停留 4 月、Q2 直條圖支援 4, 5, 6 月獨立營收顯示。
+# 💡 更新內容： 新增 Q1 實際財報開獎的「卡片式紅綠燈對比」，並以實際 Q1 獲利重塑 Q2~Q4 體質！
 # ==========================================
 
 import streamlit as st
@@ -35,6 +34,7 @@ st.markdown("""
     h3 { font-size: 1.2rem !important; margin-bottom: 0.5rem !important; } 
     p { margin-bottom: 0.2rem !important; font-size: 0.95rem !important; }
     .block-container { padding-top: 2.5rem !important; padding-bottom: 1rem !important; }
+    header[data-testid="stHeader"] { z-index: 99999 !important; visibility: visible !important; }
     @media (max-width: 768px) {
         h1 { font-size: 1.5rem !important; }
         h2 { font-size: 1.2rem !important; }
@@ -124,7 +124,9 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
     benchmark_q3_rev = benchmark_q2_rev * ratio_q3
     benchmark_q4_rev = benchmark_q3_rev * ratio_q4
 
-    # 🌟 嚴格遵守吳伯伯指定邏輯：(1月x2 + 2月)
+    # ==========================================
+    # 🌟 嚴格遵守指定邏輯：(1月x2 + 2月) 及 退守防禦機制
+    # ==========================================
     if current_month <= 1: 
         dynamic_est_q1_rev = benchmark_q1_rev
         dynamic_base_avg = base_11_12_avg
@@ -140,7 +142,6 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
             formula_note = "動態EPS推估 (無1月用標竿)"
     elif current_month == 3: 
         if sim_rev_2 > 0:
-            # 💡 就是這裡！乖乖換回 1月x2 + 2月
             dynamic_est_q1_rev = (sim_rev_1 * 2) + sim_rev_2
             dynamic_base_avg = dynamic_est_q1_rev / 3
             formula_note = "動態EPS推估 (1月x2+2月)"
@@ -153,9 +154,22 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
             dynamic_base_avg = base_11_12_avg
             formula_note = "動態EPS推估 (無1,2月用標竿)"
     else: 
-        dynamic_est_q1_rev = sim_rev_1 + sim_rev_2 + sim_rev_3
-        dynamic_base_avg = dynamic_est_q1_rev / 3
-        formula_note = "動態EPS推估 (知Q1)"
+        if sim_rev_3 > 0:
+            dynamic_est_q1_rev = sim_rev_1 + sim_rev_2 + sim_rev_3
+            dynamic_base_avg = dynamic_est_q1_rev / 3
+            formula_note = "動態EPS推估 (知Q1)"
+        elif sim_rev_2 > 0:
+            dynamic_est_q1_rev = (sim_rev_1 * 2) + sim_rev_2
+            dynamic_base_avg = dynamic_est_q1_rev / 3
+            formula_note = "動態EPS推估 (缺3月,退守1月x2+2月)"
+        elif sim_rev_1 > 0:
+            dynamic_est_q1_rev = sim_rev_1 * 0.9 * 3
+            dynamic_base_avg = dynamic_est_q1_rev / 3
+            formula_note = "動態EPS推估 (缺2,3月,退守1月x0.9x3)"
+        else:
+            dynamic_est_q1_rev = benchmark_q1_rev
+            dynamic_base_avg = base_11_12_avg
+            formula_note = "動態EPS推估 (全無,用標竿)"
 
     # ==========================================
     # 🌟 專屬 Q2 動態營收推估 (4/5 月黃金公式)
@@ -178,7 +192,6 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
         else:
             dynamic_est_q2_rev = dynamic_est_q1_rev
 
-    # 計算已知的 Q2 總和供圖表使用
     if current_month <= 3:
         actual_known_q2 = 0
     elif current_month == 4:
@@ -192,22 +205,36 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
     dynamic_est_q4_rev = dynamic_est_q3_rev * ratio_q4
     dynamic_total_rev = dynamic_est_q1_rev + dynamic_est_q2_rev + dynamic_est_q3_rev + dynamic_est_q4_rev
 
-    # 🌟 EPS 黃金公式
+    # ==========================================
+    # 🌟 獲利體質計算 (EPS 黃金公式與重塑)
+    # ==========================================
     safe_base_rev = base_q_total_rev if base_q_total_rev > 0 else 1.0
-    profit_margin_factor = base_q_eps * (1 - (non_op_ratio / 100)) / safe_base_rev 
-
-    est_q1_eps_forecast = dynamic_est_q1_rev * profit_margin_factor
-    est_q2_eps_forecast = dynamic_est_q2_rev * profit_margin_factor
-    est_q3_eps_forecast = dynamic_est_q3_rev * profit_margin_factor
-    est_q4_eps_forecast = dynamic_est_q4_rev * profit_margin_factor
+    orig_profit_margin_factor = base_q_eps * (1 - (non_op_ratio / 100)) / safe_base_rev 
+    
+    # 這是純粹用去年 Q4 體質算出來的 Q1 預估值 (照妖鏡基準)
+    est_q1_eps_baseline = dynamic_est_q1_rev * orig_profit_margin_factor
 
     if actual_q1_eps > 0:
+        # 🎯 實際財報已開出：保留基準供對比，並以最新財報「重塑體質」
         est_q1_eps_display = actual_q1_eps
-        est_full_year_eps = actual_q1_eps + est_q2_eps_forecast + est_q3_eps_forecast + est_q4_eps_forecast
-        formula_note += " (A+F滾動)"
+        formula_note += " ｜ 🎯 財報開獎(已重塑新體質)"
+        
+        # 算出新的體質轉換率
+        safe_actual_q1_rev = dynamic_est_q1_rev if dynamic_est_q1_rev > 0 else 1.0 
+        new_profit_margin_factor = actual_q1_eps / safe_actual_q1_rev
+        
+        # 未來的 Q2, Q3, Q4 全面改用新體質計算
+        est_q2_eps_forecast = dynamic_est_q2_rev * new_profit_margin_factor
+        est_q3_eps_forecast = dynamic_est_q3_rev * new_profit_margin_factor
+        est_q4_eps_forecast = dynamic_est_q4_rev * new_profit_margin_factor
     else:
-        est_q1_eps_display = est_q1_eps_forecast
-        est_full_year_eps = est_q1_eps_forecast + est_q2_eps_forecast + est_q3_eps_forecast + est_q4_eps_forecast
+        # 🕒 尚未開獎：全年度維持舊有體質預估
+        est_q1_eps_display = est_q1_eps_baseline
+        est_q2_eps_forecast = dynamic_est_q2_rev * orig_profit_margin_factor
+        est_q3_eps_forecast = dynamic_est_q3_rev * orig_profit_margin_factor
+        est_q4_eps_forecast = dynamic_est_q4_rev * orig_profit_margin_factor
+
+    est_full_year_eps = est_q1_eps_display + est_q2_eps_forecast + est_q3_eps_forecast + est_q4_eps_forecast
 
     est_per = current_price / est_full_year_eps if est_full_year_eps > 0 else 0
     q1_yoy = ((dynamic_est_q1_rev - ly_q1_rev) / ly_q1_rev) * 100 if ly_q1_rev > 0 else 0
@@ -245,7 +272,10 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
         "股票名稱": name, "最新股價": round(current_price, 2), 
         "_logic_note": formula_note, "_payout_note": "", 
         "當季預估均營收": round(dynamic_base_avg, 2), "季成長率(YoY)%": round(q1_yoy, 2),
-        "前瞻殖利率(%)": round(forward_yield, 2), "預估今年Q1_EPS": round(est_q1_eps_display, 2), 
+        "前瞻殖利率(%)": round(forward_yield, 2), 
+        "預估今年Q1_EPS": round(est_q1_eps_display, 2), 
+        "預估基準Q1_EPS": round(est_q1_eps_baseline, 2), # 💡 存入基準值供卡片對比
+        "實際Q1_EPS": actual_q1_eps, # 💡 存入實際值供卡片對比
         "預估今年度_EPS": round(est_full_year_eps, 2), "最新累季EPS": acc_eps, "本益比(PER)": round(est_per, 2),         
         "預估年成長率(%)": round(est_annual_yoy, 2), "運算配息率(%)": calc_payout_ratio, "配息基準": payout_note,
         "最新業外佔比(%)": round(non_op_ratio, 2), 
@@ -281,7 +311,14 @@ def financial_strategic_model(name, code, current_month, data, simulated_month, 
             dynamic_base_avg = sim_rev_1
             dynamic_est_q1_rev = dynamic_base_avg * 3
     else: 
-        dynamic_est_q1_rev = sim_rev_1 + sim_rev_2 + sim_rev_3
+        if sim_rev_3 > 0:
+            dynamic_est_q1_rev = sim_rev_1 + sim_rev_2 + sim_rev_3
+        elif sim_rev_2 > 0:
+            dynamic_est_q1_rev = ((sim_rev_1 + sim_rev_2) / 2) * 3
+        elif sim_rev_1 > 0:
+            dynamic_est_q1_rev = sim_rev_1 * 3
+        else:
+            dynamic_est_q1_rev = data.get("ly_q4_rev", 0)
         dynamic_base_avg = dynamic_est_q1_rev / 3
 
     base_eps = data["eps_q4"] if data.get("eps_q4", 0) != 0 else data.get("eps_q3", 0)
@@ -353,6 +390,8 @@ def financial_strategic_model(name, code, current_month, data, simulated_month, 
         "前瞻PER": round(est_per, 2), 
         "原始PER": round(data.get("orig_per", 0), 2), 
         "預估今年Q1_EPS": round(est_q1_eps_display, 2), 
+        "預估基準Q1_EPS": round(est_q1_eps_forecast, 2), # 供卡片邏輯判斷避免出錯
+        "實際Q1_EPS": actual_q1_eps,
         "預估今年度_EPS": round(est_fy_eps, 2), 
         "運算配息率(%)": payout_ratio, 
         "配息基準": payout_note, 
@@ -437,7 +476,6 @@ def fetch_gsheet_data_v182():
                 eps_q3, eps_q4 = v(get_col(f"{ly}Q3", "盈餘")), v(get_col(f"{ly}Q4", "盈餘"))
                 rev_q3 = v(get_col(f"{ly}Q3", "營收", ex=["增", "率", "%"]))
                 
-                # 🌟 絕對精準：判讀 Q4 是否有數據，若無，用 Q3 退守！
                 op_q4 = v(get_col(f"{ly}Q4", "營益", ex=["率", "%", "增", "每股", "佔"]))
                 nop_q4 = v(get_col(f"{ly}Q4", "業外損益", ex=["率", "%", "增", "每股", "佔"]))
                 op_q3 = v(get_col(f"{ly}Q3", "營益", ex=["率", "%", "增", "每股", "佔"]))
@@ -454,11 +492,9 @@ def fetch_gsheet_data_v182():
                     base_q_total_rev = rev_q3
                     base_eps = eps_q3
                     
-                # 🌟 用最嚴謹的方式重新計算業外佔比
                 denom = base_op + base_nop
                 non_op_ratio = (base_nop / denom * 100) if denom != 0 else 0.0
 
-                # 💡 確保這裡有抓取到 4, 5, 6 月的營收資料
                 new_entry = {
                     "name": str(row[c_name]) if c_name else "未知", 
                     "industry": str(row[get_col("產業") or get_col("類別")]).strip() if (get_col("產業") or get_col("類別")) else "未分類",
@@ -514,8 +550,6 @@ if st.sidebar.button("🔄 重新載入最新表單資料", type="primary", use_
     force_rerun()
 
 st.sidebar.header("⚙️ 系統參數")
-
-# 💡 變更點 1：指定剛進入頁面時的 Slider 預設停留月份為 4 月
 default_stay_month = 4
 simulated_month = st.sidebar.slider("月份推演 (檢視當下戰情)", 1, 12, default_stay_month)
 
@@ -798,7 +832,6 @@ if cached_data:
                         found += 1
                         bar.progress((i+1)/len(vips), f"即時連線: {code}")
                         pr = get_realtime_price(code, d["price"])
-                        # 💡 傳入剛剛提取的 4, 5, 6 月營收給計算大腦
                         res_list.append(auto_strategic_model(f"{code} {d['name']}", simulated_month, d.get("rev_last_10",0), d.get("rev_last_11",0), d.get("rev_last_12",0), d.get("rev_this_1",0), d.get("rev_this_2",0), d.get("rev_this_3",0), d.get("rev_this_4",0), d.get("rev_this_5",0), d.get("rev_this_6",0), d["base_q_eps"], d.get("non_op_ratio",0), d.get("base_q_total_rev",0), d["ly_q1_rev"], d["ly_q2_rev"], d["ly_q3_rev"], d["ly_q4_rev"], d["y1_q1_rev"], d["y1_q2_rev"], d["y1_q3_rev"], d["y1_q4_rev"], d.get("payout",0), pr, d.get("contract_liab",0), d.get("contract_liab_qoq",0), d.get("acc_eps",0), d.get("declared_div",0), d.get("actual_q1_eps",0)))
                 bar.empty()
                 if not found: st.warning("未找到股票")
@@ -846,16 +879,32 @@ if cached_data:
                                 safe_grow = get_safe_float(row.get('預估年成長率(%)', 0))
                                 safe_non_op = get_safe_float(row.get('最新業外佔比(%)', 0))
                                 
-                                st.markdown(
-                                    f"股價 {safe_price:.2f}元 ｜ "
-                                    f"前瞻殖利率 {safe_yield:.2f}%<br>"
-                                    f"PER {safe_per:.2f} ｜ "
-                                    f"EPS {safe_eps:.2f}元 ｜ "
-                                    f"成長率 {safe_grow:.2f}% ｜ "
-                                    f"📉 業外佔比 {safe_non_op:.2f}%<br>"
-                                    f"📈 合約負債 {liab_value:.2f}億 ({liab_qoq:.2f}%)",
-                                    unsafe_allow_html=True
-                                )
+                                # 🌟 升級為卡片式 (Metric) 顯示，取代原本的純文字 markdown
+                                st.markdown(f"#### 🏷️ 戰情核心指標")
+                                c_m1, c_m2, c_m3 = st.columns(3)
+                                
+                                with c_m1:
+                                    st.metric("最新股價", f"{safe_price:.2f} 元")
+                                    st.metric("前瞻殖利率", f"{safe_yield:.2f} %")
+                                    
+                                with c_m2:
+                                    st.metric("預估今年度 EPS", f"{safe_eps:.2f} 元")
+                                    # 💡 卡片紅綠燈邏輯：判斷是否已經有實際 Q1 EPS
+                                    actual_q1 = row.get('實際Q1_EPS', 0)
+                                    base_q1 = row.get('預估基準Q1_EPS', 0)
+                                    if actual_q1 > 0:
+                                        delta_val = actual_q1 - base_q1
+                                        # delta_color="inverse" 讓正數顯示紅色，負數顯示綠色 (符合台灣股市習慣)
+                                        st.metric("Q1 實際 EPS (開獎)", f"{actual_q1:.2f} 元", f"{delta_val:.2f} (預估為 {base_q1:.2f})", delta_color="inverse")
+                                    else:
+                                        st.metric("Q1 預估 EPS (未開獎)", f"{row.get('預估今年Q1_EPS', 0):.2f} 元")
+                                        
+                                with c_m3:
+                                    st.metric("本益比 (PER)", f"{safe_per:.2f}")
+                                    st.metric("預估年成長率", f"{safe_grow:.2f} %")
+                                    
+                                st.markdown(f"**📉 業外佔比:** {safe_non_op:.2f}% ｜ **📈 合約負債:** {liab_value:.2f}億 ({liab_qoq:.2f}%)")
+
                                 if is_admin:
                                     with st.expander("📝 點此查看預估邏輯"):
                                         st.write(str(row.get('_logic_note', '無紀錄')))
@@ -876,7 +925,6 @@ if cached_data:
                                     
                                 d_viz.append({"季度": q, "類別": "A.去年", "項目": "去年實際", "營收(億)": clean_val_list(row.get("_ly_qs", [0,0,0,0]), i)})
                                 
-                                # 💡 變更點 2：加入 Q2 (4, 5, 6月) 的長條圖判斷邏輯
                                 if q == "Q1":
                                     m_revs = [clean_val_list(row.get("_known_q1_months", [0,0,0]), x) for x in range(3)]
                                     if m_revs[0] > 0: d_viz.append({"季度": q, "類別": "B.今年", "項目": "1月營收", "營收(億)": m_revs[0]})
@@ -899,7 +947,6 @@ if cached_data:
                                 y=alt.Y('營收(億):Q', title=None), 
                                 color=alt.Color('項目:N', legend=alt.Legend(title=None, orient="bottom"), 
                                                 scale=alt.Scale(
-                                                    # 💡 將 4, 5, 6 月加入色系版圖中
                                                     domain=["去年實際", "1月營收", "2月營收", "3月營收", "4月營收", "5月營收", "6月營收", "已公布", "預估標竿"], 
                                                     range=["#004c6d", "#cce6ff", "#66b2ff", "#0073e6", "#cce6ff", "#66b2ff", "#0073e6", "#3399ff", "#ff4b4b"]
                                                 )),
@@ -949,7 +996,6 @@ if cached_data:
                         
                         pr = float(d.get("price", 0)) if d.get("price") else 0.0
                         
-                        # 💡 全市場掃描區塊也要補上 4, 5, 6 月的參數
                         r = auto_strategic_model(f"{code} {d['name']}", simulated_month, d.get("rev_last_10",0), d.get("rev_last_11",0), d.get("rev_last_12",0), d.get("rev_this_1",0), d.get("rev_this_2",0), d.get("rev_this_3",0), d.get("rev_this_4",0), d.get("rev_this_5",0), d.get("rev_this_6",0), d["base_q_eps"], d.get("non_op_ratio",0), d.get("base_q_total_rev",0), d["ly_q1_rev"], d["ly_q2_rev"], d["ly_q3_rev"], d["ly_q4_rev"], d["y1_q1_rev"], d["y1_q2_rev"], d["y1_q3_rev"], d["y1_q4_rev"], d.get("payout",0), pr, d.get("contract_liab",0), d.get("contract_liab_qoq",0), d.get("acc_eps",0), d.get("declared_div",0), d.get("actual_q1_eps",0))
                         
                         ly_q1_avg, ly_q2 = r["_ly_qs"][0]/3, r["_ly_qs"][1]
