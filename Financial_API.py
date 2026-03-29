@@ -1,6 +1,6 @@
 # ==========================================
 # 📂 檔案名稱： Financial_API.py (黃金公式絕對鎖死版)
-# 💡 更新內容： 修復年份判定 Bug，強制基期連動，並正式支援讀取「26Q1單季每股盈餘」新欄位！
+# 💡 更新內容： 表格欄位純化（鎖死預估值、隱藏多餘基準欄），並在財報開獎卡片新增差異百分比 (%) 顯示！
 # ==========================================
 
 import streamlit as st
@@ -113,6 +113,7 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
     ratio_q3 = sum_q3_history / sum_q2_history if sum_q2_history > 0 else 1.0
     ratio_q4 = sum_q4_history / sum_q3_history if sum_q3_history > 0 else 1.0
 
+    # 🌟 紅色標竿
     if rev_last_12 > 0:
         base_11_12_avg = (rev_last_11 + rev_last_12) / 2
     else:
@@ -123,6 +124,9 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
     benchmark_q3_rev = benchmark_q2_rev * ratio_q3
     benchmark_q4_rev = benchmark_q3_rev * ratio_q4
 
+    # ==========================================
+    # 🌟 嚴格遵守指定邏輯：(1月x2 + 2月) 及 退守防禦機制
+    # ==========================================
     if current_month <= 1: 
         dynamic_est_q1_rev = benchmark_q1_rev
         dynamic_base_avg = base_11_12_avg
@@ -167,6 +171,9 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
             dynamic_base_avg = base_11_12_avg
             formula_note = "動態EPS推估 (全無,用標竿)"
 
+    # ==========================================
+    # 🌟 專屬 Q2 動態營收推估 (4/5 月黃金公式)
+    # ==========================================
     if current_month <= 3:
         dynamic_est_q2_rev = dynamic_est_q1_rev
     elif current_month == 4:
@@ -201,6 +208,7 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
     safe_base_rev = base_q_total_rev if base_q_total_rev > 0 else 1.0
     orig_profit_margin_factor = base_q_eps * (1 - (non_op_ratio / 100)) / safe_base_rev 
     
+    # 這是純粹用去年 Q4 體質算出來的 Q1 預估值 (照妖鏡基準)
     est_q1_eps_baseline = dynamic_est_q1_rev * orig_profit_margin_factor
 
     if actual_q1_eps > 0:
@@ -219,6 +227,7 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
         est_q3_eps_forecast = dynamic_est_q3_rev * orig_profit_margin_factor
         est_q4_eps_forecast = dynamic_est_q4_rev * orig_profit_margin_factor
 
+    # 這裡的年度計算是正確的，因為有把實際 Q1 加上未來的預測
     est_full_year_eps = est_q1_eps_display + est_q2_eps_forecast + est_q3_eps_forecast + est_q4_eps_forecast
 
     est_per = current_price / est_full_year_eps if est_full_year_eps > 0 else 0
@@ -258,9 +267,8 @@ def auto_strategic_model(name, current_month, rev_last_10, rev_last_11, rev_last
         "_logic_note": formula_note, "_payout_note": "", 
         "當季預估均營收": round(dynamic_base_avg, 2), "季成長率(YoY)%": round(q1_yoy, 2),
         "前瞻殖利率(%)": round(forward_yield, 2), 
-        "預估今年Q1_EPS": round(est_q1_eps_display, 2), 
-        "預估基準Q1_EPS": round(est_q1_eps_baseline, 2),
-        "實際Q1_EPS": actual_q1_eps, 
+        "預估今年Q1_EPS": round(est_q1_eps_baseline, 2), # 💡 永遠鎖死只顯示模型算出來的標準值
+        "實際Q1_EPS": actual_q1_eps, # 💡 放上實際值供表格檢視
         "預估今年度_EPS": round(est_full_year_eps, 2), "最新累季EPS": acc_eps, "本益比(PER)": round(est_per, 2),         
         "預估年成長率(%)": round(est_annual_yoy, 2), "運算配息率(%)": calc_payout_ratio, "配息基準": payout_note,
         "最新業外佔比(%)": round(non_op_ratio, 2), 
@@ -374,8 +382,7 @@ def financial_strategic_model(name, code, current_month, data, simulated_month, 
         "近10年平均合計殖利率(%)": round(data.get("annual_yield", 0), 2),
         "前瞻PER": round(est_per, 2), 
         "原始PER": round(data.get("orig_per", 0), 2), 
-        "預估今年Q1_EPS": round(est_q1_eps_display, 2), 
-        "預估基準Q1_EPS": round(est_q1_eps_forecast, 2),
+        "預估今年Q1_EPS": round(est_q1_eps_forecast, 2), # 💡 鎖死為模型預估值
         "實際Q1_EPS": actual_q1_eps,
         "預估今年度_EPS": round(est_fy_eps, 2), 
         "運算配息率(%)": payout_ratio, 
@@ -434,7 +441,6 @@ def fetch_gsheet_data_v182():
             this_y = str(max(yp)) if yp else "26"
             last_y = str(int(this_y) - 1)
             
-            # 強制鎖定歷史基期 (不會被新增的 26Q1 欄位干擾！)
             ly = last_y
             y1 = str(int(ly) - 1) 
 
@@ -498,7 +504,6 @@ def fetch_gsheet_data_v182():
                     "base_q_eps": base_eps, 
                     "non_op_ratio": non_op_ratio, 
                     "base_q_total_rev": base_q_total_rev, 
-                    # 💡 這裡把您的新欄位 (例如 26Q1單季每股盈餘) 接上了！
                     "actual_q1_eps": v(get_col(f"{this_y}Q1", "盈餘", ex=["增"]) or get_col("今年Q1盈餘", ex=["增"]) or get_col("本年Q1盈餘", ex=["增"]) or get_col("最新Q1EPS", ex=["增"])),
                     "ly_q1_rev": v(get_col(f"{ly}Q1", "營收", ex=["增", "%"])), "ly_q2_rev": v(get_col(f"{ly}Q2", "營收", ex=["增", "%"])), "ly_q3_rev": rev_q3, "ly_q4_rev": rev_q4,
                     "y1_q1_rev": v(get_col(f"{y1}Q1", "營收", ex=["增", "%"])), "y1_q2_rev": v(get_col(f"{y1}Q2", "營收", ex=["增", "%"])), "y1_q3_rev": v(get_col(f"{y1}Q3", "營收", ex=["增", "%"])), "y1_q4_rev": v(get_col(f"{y1}Q4", "營收", ex=["增", "%"])),
@@ -748,10 +753,11 @@ def render_dataframe(df_source, is_finance=False, is_single=False):
             df["股票名稱"] = df["股票名稱"].astype(str).str.strip()
             df = df.drop_duplicates(subset=["股票名稱"], keep='first')
         
+        # 💡 表格欄位：加入「實際Q1_EPS」，移除累贅的預估基準值
         if is_finance:
-            cols = ["股票名稱", "最新股價", "PBR(股價淨值比)", "前瞻殖利率(%)", "近10年平均合計殖利率(%)", "前瞻PER", "原始PER", "預估今年Q1_EPS", "預估今年度_EPS", "運算配息率(%)", "配息基準", "當季預估均營收(億)"]
+            cols = ["股票名稱", "最新股價", "PBR(股價淨值比)", "前瞻殖利率(%)", "近10年平均合計殖利率(%)", "前瞻PER", "原始PER", "預估今年Q1_EPS", "實際Q1_EPS", "預估今年度_EPS", "運算配息率(%)", "配息基準", "當季預估均營收(億)"]
         else:
-            cols = ["股票名稱", "最新股價", "當季預估均營收", "季成長率(YoY)%", "前瞻殖利率(%)", "預估今年Q1_EPS", "預估今年度_EPS", "最新累季EPS", "本益比(PER)", "預估年成長率(%)", "運算配息率(%)", "最新業外佔比(%)", "配息基準", "最新季度流動合約負債(億)", "最新季度流動合約負債季增(%)"]
+            cols = ["股票名稱", "最新股價", "當季預估均營收", "季成長率(YoY)%", "前瞻殖利率(%)", "預估今年Q1_EPS", "實際Q1_EPS", "預估今年度_EPS", "最新累季EPS", "本益比(PER)", "預估年成長率(%)", "運算配息率(%)", "最新業外佔比(%)", "配息基準", "最新季度流動合約負債(億)", "最新季度流動合約負債季增(%)"]
             
         df = df[[c for c in cols if c in df.columns]]
         
@@ -877,13 +883,19 @@ if cached_data:
                                     
                                 with c_m2:
                                     st.metric("預估今年度 EPS", f"{safe_eps:.2f} 元")
+                                    
+                                    # 💡 變更點：加入差異百分比計算
                                     actual_q1 = row.get('實際Q1_EPS', 0)
-                                    base_q1 = row.get('預估基準Q1_EPS', 0)
+                                    base_q1 = row.get('預估今年Q1_EPS', 0) # 表格內已經鎖死為標準預估值
+                                    
                                     if actual_q1 > 0:
                                         delta_val = actual_q1 - base_q1
-                                        st.metric("Q1 實際 EPS (開獎)", f"{actual_q1:.2f} 元", f"{delta_val:.2f} (預估為 {base_q1:.2f})", delta_color="inverse")
+                                        delta_pct = (delta_val / abs(base_q1)) * 100 if base_q1 != 0 else 0
+                                        # 加上百分比顯示 (例如: +13.92%)，並明確標示原本的預估基準
+                                        pct_str = f"({delta_pct:+.2f}%) 預估為:{base_q1:.2f}"
+                                        st.metric("Q1 實際 EPS (開獎)", f"{actual_q1:.2f} 元", f"{delta_val:.2f} {pct_str}", delta_color="inverse")
                                     else:
-                                        st.metric("Q1 預估 EPS (未開獎)", f"{row.get('預估今年Q1_EPS', 0):.2f} 元")
+                                        st.metric("Q1 預估 EPS (未開獎)", f"{base_q1:.2f} 元")
                                         
                                 with c_m3:
                                     st.metric("本益比 (PER)", f"{safe_per:.2f}")
